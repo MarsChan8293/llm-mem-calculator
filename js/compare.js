@@ -491,7 +491,7 @@ $presetBtns.addEventListener('click', function (e) {
   selectedModels = [];
 
   if (preset === 'top5') {
-    var top5Ids = ['deepseek-v4-pro', 'glm-5.1', 'qwen3.5-397b-a17b', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
+    var top5Ids = ['deepseek-v4-pro', 'glm-5.1', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
     top5Ids.forEach(function (id) {
       var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
       if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
@@ -519,7 +519,7 @@ $presetBtns.addEventListener('click', function (e) {
 });
 
 (function () {
-  var top5Ids = ['deepseek-v4-pro', 'glm-5.1', 'qwen3.5-397b-a17b', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
+  var top5Ids = ['deepseek-v4-pro', 'glm-5.1', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
   top5Ids.forEach(function (id) {
     var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
     if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
