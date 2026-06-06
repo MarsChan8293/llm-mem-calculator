@@ -170,8 +170,11 @@ function calculate() {
           return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
         });
       }
+      var nameVal = vals[f.name];
+      var nameTooltip = nameVal !== undefined ? (typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : nameVal) : '';
+      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
       return '<div class="formula-row">' +
-        '<span class="formula-name">' + f.name + ' ' + tipIcon(f.tip) + '</span>' +
+        namePill + ' ' + tipIcon(f.tip) +
         '<span class="formula-eq">=</span>' +
         '<span class="formula-expr">' + expr + '</span>' +
       '</div>';
