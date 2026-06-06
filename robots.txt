@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://elinx.github.io/llm-mem-calculator/sitemap.xml
