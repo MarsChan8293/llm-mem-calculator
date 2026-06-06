@@ -18,6 +18,7 @@ var $idxPrec = document.getElementById('idxPrec');
 var $draft  = document.getElementById('draft');
 var $linear = document.getElementById('linear');
 var $idxPrecField = document.getElementById('idxPrecField');
+var $idxMetricBox = document.getElementById('idxMetricBox');
 var $draftField  = document.getElementById('draftField');
 var $linearField = document.getElementById('linearField');
 var $draftHint   = document.getElementById('draftHint');
@@ -124,7 +125,12 @@ function calculate() {
   document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
   document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
   document.getElementById('kvSize').textContent = fmtBytes(result.kvBytes);
-  document.getElementById('idxSize').textContent = result.idxBytes > 0 ? fmtBytes(result.idxBytes) : '—';
+  if (result.idxBytes > 0) {
+    $idxMetricBox.classList.remove('hidden');
+    document.getElementById('idxSize').textContent = fmtBytes(result.idxBytes);
+  } else {
+    $idxMetricBox.classList.add('hidden');
+  }
   document.getElementById('perToken').textContent = fmtBytes(result.perTokenBytes);
 
   // ── Render formulas ──
