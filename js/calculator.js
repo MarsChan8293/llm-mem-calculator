@@ -174,7 +174,7 @@ function calculate() {
       var nameTooltip = nameVal !== undefined ? (typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : nameVal) : '';
       var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
       return '<div class="formula-row">' +
-        namePill + ' ' + tipIcon(f.tip) +
+        namePill +
         '<span class="formula-eq">=</span>' +
         '<span class="formula-expr">' + expr + '</span>' +
       '</div>';
