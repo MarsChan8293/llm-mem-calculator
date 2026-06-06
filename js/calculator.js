@@ -22,7 +22,7 @@ var $noteSection = document.getElementById('noteSection');
 var $sourceLink = document.getElementById('sourceLink');
 var $themeToggle = document.getElementById('themeToggle');
 
-var selectedModelId = null;
+var selectedModelId = 'deepseek-v4-pro';
 var currentUnit = 'gib';
 var precValue = 'fp8_int8';
 var idxPrecValue = 'fp4_int4';
@@ -394,9 +394,11 @@ function calculate() {
       var nameTooltip = nameVal !== undefined ? (typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : nameVal) : '';
       var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
       return '<div class="formula-row">' +
-        namePill +
-        '<span class="formula-eq">=</span>' +
-        '<span class="formula-expr">' + expr + '</span>' +
+        '<div class="formula-lhs">' +
+          namePill +
+          '<span class="formula-eq">=</span>' +
+        '</div>' +
+        '<div class="formula-rhs">' + expr + '</div>' +
       '</div>';
     }).join('');
   } else {
@@ -422,4 +424,5 @@ function calculate() {
 }
 
 buildPicker('');
-calculate();
+renderTag();
+onModelChange();
