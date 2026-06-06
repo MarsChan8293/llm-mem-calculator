@@ -258,7 +258,7 @@ function updateConditionalFields() {
 
   var hasDraft = selectedModels.some(function (m) {
     var f = m.fields;
-    return f.num_nextn_predict_layers || f.mtp_transformer_layers;
+    return m.formula !== 'qwen_linear_full_hybrid' && (f.num_nextn_predict_layers || f.mtp_transformer_layers);
   });
   $draftField.classList.toggle('hidden', !hasDraft);
 
