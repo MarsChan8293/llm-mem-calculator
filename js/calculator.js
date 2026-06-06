@@ -196,7 +196,7 @@ function getIdxPrecBytes() {
 function onModelChange() {
   var model = getModel();
   if (model) {
-    $tokensSlider.max = model.max_position_embeddings;
+    $tokensSlider.max = Math.log2(model.max_position_embeddings);
   }
   calculate();
 }
@@ -237,7 +237,7 @@ $linearToggle.addEventListener('click', function () {
 $tokens.addEventListener('input', function () {
   var raw = parseFormattedNumber(this.value);
   if (isNaN(raw) || raw < 1) raw = 1;
-  $tokensSlider.value = Math.round(raw / 1024) * 1024;
+  $tokensSlider.value = Math.log2(raw);
   calculate();
 });
 
@@ -248,7 +248,7 @@ $tokens.addEventListener('blur', function () {
 });
 
 $tokensSlider.addEventListener('input', function () {
-  var val = parseInt(this.value, 10);
+  var val = Math.round(Math.pow(2, parseFloat(this.value)));
   $tokens.value = formatWithCommas(val);
   calculate();
 });
