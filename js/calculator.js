@@ -142,10 +142,29 @@ function calculate() {
     $formulaSection.classList.remove('hidden');
     $formulaTitle.textContent = result.formulaTitle;
     $formulaBody.innerHTML = result.formulas.map(function (f) {
+      var expr = f.expr;
+      var vals = Object.assign({}, f.values);
+      if (expr.indexOf('sequences') !== -1) {
+        vals.sequences = seqs;
+      }
+      var keys = Object.keys(vals).sort(function (a, b) { return b.length - a.length; });
+      if (keys.length > 0) {
+        var re = new RegExp('\\b(' + keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'g');
+        expr = expr.replace(re, function (match) {
+          var val = vals[match];
+          var tooltipText;
+          if (typeof val === 'number') {
+            tooltipText = match.indexOf('_bytes') !== -1 ? fmtBytes(val) : fmtNum(val);
+          } else {
+            tooltipText = val;
+          }
+          return '<span class="pill" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
+        });
+      }
       return '<div class="formula-row">' +
         '<span class="formula-name">' + f.name + ' ' + tipIcon(f.tip) + '</span>' +
         '<span class="formula-eq">=</span>' +
-        '<span class="formula-expr">' + f.expr + '</span>' +
+        '<span class="formula-expr">' + expr + '</span>' +
       '</div>';
     }).join('');
   } else {

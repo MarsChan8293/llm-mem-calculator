@@ -226,6 +226,48 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
 .formula-expr { color: var(--text2); }
 .formula-expr .hl { color: var(--yellow); font-weight: 500; }
 
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--accent-light);
+  color: var(--accent2);
+  font-size: 0.82rem;
+  cursor: help;
+  position: relative;
+  white-space: nowrap;
+}
+.pill[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  white-space: nowrap;
+  z-index: 100;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  pointer-events: none;
+}
+.pill[data-tooltip]:hover::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--text);
+  z-index: 101;
+  pointer-events: none;
+}
+
 /* ── Breakdown ── */
 .breakdown {
   margin-top: 20px;
