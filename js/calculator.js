@@ -111,7 +111,7 @@ function buildPicker(filter) {
 
         var addBtn = document.createElement('span');
         addBtn.className = 'picker-add';
-        addBtn.textContent = selectedModelId === m.id ? '\u2713' : '+';
+        addBtn.textContent = selectedModelId === m.id ? '\u25CF' : '\u25CB';
 
         item.appendChild(nameSpan);
         item.appendChild(addBtn);
@@ -390,15 +390,14 @@ function calculate() {
           return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
         });
       }
-      var nameVal = vals[f.name];
-      var nameTooltip = '';
+      var nameVal = f.resultValue !== undefined ? f.resultValue : vals[f.name];
+      var nameTooltip = f.tip || '';
+      var nameValText = '';
       if (nameVal !== undefined) {
-        nameTooltip = typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : nameVal;
+        nameValText = typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : String(nameVal);
       }
-      if (f.tip) {
-        nameTooltip = nameTooltip ? f.tip + '\n' + nameTooltip : f.tip;
-      }
-      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
+      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>' +
+        (nameValText ? '<span class="formula-val">' + nameValText + '</span>' : '');
       return '<div class="formula-row">' +
         '<div class="formula-lhs">' +
           namePill +
