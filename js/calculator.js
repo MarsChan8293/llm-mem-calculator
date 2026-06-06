@@ -237,7 +237,7 @@ $linearToggle.addEventListener('click', function () {
 $tokens.addEventListener('input', function () {
   var raw = parseFormattedNumber(this.value);
   if (isNaN(raw) || raw < 1) raw = 1;
-  $tokensSlider.value = raw;
+  $tokensSlider.value = Math.round(raw / 1024) * 1024;
   calculate();
 });
 
