@@ -1,6 +1,6 @@
 var PALETTE = [
-  '#3b5bdb', '#e03131', '#2b8a3e', '#e67700', '#9c36b5',
-  '#0c8599', '#c2255c', '#5c940d', '#d9480f', '#6741d9'
+  '#3b5bdb', '#e03131', '#2b8a3e', '#d9480f', '#9c36b5',
+  '#0c8599', '#c2255c', '#e8590c', '#6741d9', '#862e9c'
 ];
 
 var selectedModels = [];
@@ -24,6 +24,12 @@ var $btnDownload = document.getElementById('btnDownload');
 var $btnCopy = document.getElementById('btnCopy');
 
 var MAX_MODELS = 10;
+
+var _rs = getComputedStyle(document.documentElement);
+var CSS_TEXT = _rs.getPropertyValue('--text').trim();
+var CSS_TEXT2 = _rs.getPropertyValue('--text2').trim();
+var CSS_BORDER = _rs.getPropertyValue('--border').trim();
+var CSS_SANS = _rs.getPropertyValue('--sans').trim();
 
 MODEL_DATA.precision_options.forEach(function (p) {
   var opt = document.createElement('option');
@@ -293,8 +299,8 @@ function renderChart() {
           display: true,
           text: $chartTitle.value || 'KV Cache Comparison',
           align: 'center',
-          font: { size: 16, weight: 'bold', family: 'Inter, sans-serif' },
-          color: '#1a202c',
+          font: { size: 16, weight: 'bold', family: CSS_SANS },
+          color: CSS_TEXT,
           padding: { bottom: 16 }
         },
         legend: {
@@ -303,8 +309,8 @@ function renderChart() {
           labels: {
             usePointStyle: true,
             pointStyle: 'line',
-            font: { size: 12, family: 'Inter, sans-serif' },
-            color: '#1a202c',
+            font: { size: 12, family: CSS_SANS },
+            color: CSS_TEXT,
             padding: 16
           }
         },
@@ -324,25 +330,25 @@ function renderChart() {
           type: 'linear',
           min: 0,
           max: maxTokens,
-          title: { display: true, text: 'Tokens', font: { size: 12, family: 'Inter, sans-serif' }, color: '#5a6577' },
-          grid: { color: '#e2e5eb', borderDash: [4, 4], drawTicks: false },
-          border: { display: true, color: '#e2e5eb' },
+          title: { display: true, text: 'Tokens', font: { size: 12, family: CSS_SANS }, color: CSS_TEXT2 },
+          grid: { color: CSS_BORDER, borderDash: [4, 4], drawTicks: false },
+          border: { display: true, color: CSS_BORDER },
           ticks: {
             callback: formatXTick,
-            font: { size: 11, family: 'Inter, sans-serif' },
-            color: '#5a6577',
+            font: { size: 11, family: CSS_SANS },
+            color: CSS_TEXT2,
             maxTicksLimit: 10
           }
         },
         y: {
           min: 0,
-          title: { display: true, text: 'Cache size (GB)', font: { size: 12, family: 'Inter, sans-serif' }, color: '#5a6577' },
-          grid: { color: '#e2e5eb', borderDash: [4, 4], drawTicks: false },
-          border: { display: true, color: '#e2e5eb' },
+          title: { display: true, text: 'Cache size (GB)', font: { size: 12, family: CSS_SANS }, color: CSS_TEXT2 },
+          grid: { color: CSS_BORDER, borderDash: [4, 4], drawTicks: false },
+          border: { display: true, color: CSS_BORDER },
           ticks: {
             callback: formatYTick,
-            font: { size: 11, family: 'Inter, sans-serif' },
-            color: '#5a6577'
+            font: { size: 11, family: CSS_SANS },
+            color: CSS_TEXT2
           }
         }
       },
@@ -375,12 +381,8 @@ function showToast(msg, isError) {
   if (existing) existing.remove();
 
   var toast = document.createElement('div');
-  toast.className = 'cmp-toast';
+  toast.className = 'cmp-toast ' + (isError ? 'cmp-toast--error' : 'cmp-toast--success');
   toast.textContent = msg;
-  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
-    'padding:10px 20px;border-radius:6px;font-size:0.85rem;font-family:Inter,sans-serif;' +
-    'color:#fff;z-index:9999;transition:opacity 0.3s;' +
-    'background:' + (isError ? '#e03131' : '#2b8a3e') + ';';
   document.body.appendChild(toast);
   setTimeout(function () { toast.style.opacity = '0'; }, 1800);
   setTimeout(function () { toast.remove(); }, 2200);
