@@ -391,11 +391,14 @@ function calculate() {
         });
       }
       var nameVal = f.resultValue !== undefined ? f.resultValue : vals[f.name];
-      var nameTooltip = f.tip || '';
-      var nameValText = '';
+      var nameTooltip = '';
       if (nameVal !== undefined) {
-        nameValText = typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : String(nameVal);
+        nameTooltip = typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : String(nameVal);
       }
+      if (f.tip) {
+        nameTooltip = nameTooltip ? nameTooltip + '\n' + f.tip : f.tip;
+      }
+      var nameValText = nameTooltip.split('\n')[0] || '';
       var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>' +
         (nameValText ? '<span class="formula-val">' + nameValText + '</span>' : '');
       return '<div class="formula-row">' +
