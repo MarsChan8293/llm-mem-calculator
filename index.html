@@ -35,7 +35,16 @@
       <div class="field">
         <label>Context length</label>
         <input type="text" class="num-input-lg" id="tokens" value="1,024" inputmode="numeric">
-        <input type="range" class="range-slider" id="tokensSlider" min="10" max="20" step="0.05" value="10">
+        <input type="range" class="range-slider" id="tokensSlider" min="0" max="1048576" step="1024" value="1024">
+        <div class="token-presets" id="tokenPresets">
+          <button class="token-preset" data-value="1024">1K</button>
+          <button class="token-preset" data-value="4096">4K</button>
+          <button class="token-preset" data-value="16384">16K</button>
+          <button class="token-preset" data-value="65536">64K</button>
+          <button class="token-preset" data-value="131072">128K</button>
+          <button class="token-preset" data-value="524288">512K</button>
+          <button class="token-preset" data-value="1048576">1M</button>
+        </div>
       </div>
 
       <div class="field">

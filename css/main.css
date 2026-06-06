@@ -375,6 +375,34 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   border: 2px solid var(--bg);
 }
 
+.token-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.token-preset {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text3);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.token-preset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.token-preset.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Batch Size Buttons
    ═══════════════════════════════════════════════════════════════ */

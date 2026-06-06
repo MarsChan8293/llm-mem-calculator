@@ -196,7 +196,7 @@ function getIdxPrecBytes() {
 function onModelChange() {
   var model = getModel();
   if (model) {
-    $tokensSlider.max = Math.log2(model.max_position_embeddings);
+    $tokensSlider.max = model.max_position_embeddings;
   }
   calculate();
 }
@@ -237,7 +237,7 @@ $linearToggle.addEventListener('click', function () {
 $tokens.addEventListener('input', function () {
   var raw = parseFormattedNumber(this.value);
   if (isNaN(raw) || raw < 1) raw = 1;
-  $tokensSlider.value = Math.log2(raw);
+  $tokensSlider.value = raw;
   calculate();
 });
 
@@ -248,9 +248,20 @@ $tokens.addEventListener('blur', function () {
 });
 
 $tokensSlider.addEventListener('input', function () {
-  var val = Math.round(Math.pow(2, parseFloat(this.value)));
+  var val = parseInt(this.value, 10);
   $tokens.value = formatWithCommas(val);
   calculate();
+});
+
+document.querySelectorAll('.token-preset').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.token-preset').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var val = parseInt(btn.getAttribute('data-value'), 10);
+    $tokens.value = formatWithCommas(val);
+    $tokensSlider.value = val;
+    calculate();
+  });
 });
 
 document.querySelectorAll('.batch-btn').forEach(function (btn) {
