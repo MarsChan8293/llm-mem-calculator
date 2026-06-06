@@ -582,20 +582,17 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   background: var(--text);
   color: var(--bg);
-  padding: 6px 10px;
+  padding: 5px 10px;
   border-radius: var(--radius-md);
   font-size: 0.72rem;
   font-family: var(--mono);
-  white-space: pre-line;
-  width: max-content;
-  min-width: 120px;
-  max-width: min(420px, 80vw);
-  text-align: left;
+  white-space: nowrap;
   z-index: 100;
-  line-height: 1.5;
+  line-height: 1.4;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   pointer-events: none;
 }
@@ -603,11 +600,27 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   content: '';
   position: absolute;
   bottom: calc(100% + 2px);
-  left: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   border: 5px solid transparent;
   border-top-color: var(--text);
   z-index: 101;
   pointer-events: none;
+}
+.formula-lhs .pill[data-tooltip]:hover::after {
+  left: -8px;
+  transform: none;
+  white-space: pre-line;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(440px, 75vw);
+  text-align: left;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+.formula-lhs .pill[data-tooltip]:hover::before {
+  left: 16px;
+  transform: none;
 }
 
 /* ── Breakdown ── */
