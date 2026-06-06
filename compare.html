@@ -5,56 +5,79 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KV Cache Comparison</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
 <div class="shell">
   <nav class="nav">
-    <span class="nav-brand">KV Cache Calculator</span>
-    <div class="nav-links">
-      <a href="index.html">Calculator</a>
-      <a href="compare.html" class="active">Compare</a>
+    <span class="nav-brand"><span class="nav-brand-dot"></span> KV Cache Calculator</span>
+    <div class="nav-tabs">
+      <a href="index.html" class="nav-tab">Calculator</a>
+      <a href="compare.html" class="nav-tab active">Compare</a>
     </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
   </nav>
 
-  <h1>KV Cache Comparison</h1>
-  <p class="subtitle">Compare KV cache memory across models side by side.</p>
-
   <div class="grid">
-    <!-- Left: Inputs -->
     <div class="form-card">
       <div class="field">
         <label>Select models</label>
+        <div class="preset-btns" id="presetBtns">
+          <button class="preset-btn" data-preset="top5">Top 5 Models</button>
+          <button class="preset-btn" data-preset="deepseek">DeepSeek Family</button>
+          <button class="preset-btn" data-preset="qwen">All Qwen</button>
+        </div>
         <div class="model-picker" id="modelPicker"></div>
       </div>
       <div class="selected-tags" id="selectedTags"></div>
+
       <div class="field">
-        <label for="prec">KV precision</label>
-        <select id="prec"></select>
+        <label>KV precision</label>
+        <div class="seg-control" id="precSeg">
+          <button class="seg-option" data-value="bf16_fp16">BF16</button>
+          <button class="seg-option active" data-value="fp8_int8">FP8</button>
+          <button class="seg-option" data-value="fp4_int4">FP4</button>
+        </div>
       </div>
+
       <div class="field hidden" id="idxPrecField">
-        <label for="idxPrec">Indexer precision</label>
-        <select id="idxPrec"></select>
+        <label>Indexer precision</label>
+        <div class="seg-control" id="idxPrecSeg">
+          <button class="seg-option" data-value="bf16_fp16">BF16</button>
+          <button class="seg-option" data-value="fp8_int8">FP8</button>
+          <button class="seg-option active" data-value="fp4_int4">FP4</button>
+        </div>
       </div>
+
       <div class="field">
-        <label for="seq">Sequences</label>
+        <label>Sequences</label>
         <input type="number" id="seq" value="1" min="1" step="1">
       </div>
-      <div class="checkbox-field hidden" id="draftField">
-        <input type="checkbox" id="draft">
-        <div>
-          <label class="cb-label" for="draft">Include draft KV cache</label>
-          <div class="cb-hint" id="draftHint">Adds model-specific MTP/draft KV layers when enabled by the serving stack.</div>
-        </div>
+
+      <div class="field hidden" id="draftField">
+        <label class="toggle-label">
+          Include draft KV cache
+          <button class="toggle" id="draftToggle" role="switch" aria-checked="false">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </button>
+        </label>
+        <div class="field-hint" id="draftHint">Adds model-specific MTP/draft KV layers when enabled by the serving stack.</div>
       </div>
-      <div class="checkbox-field hidden" id="linearField">
-        <input type="checkbox" id="linear">
-        <div>
-          <label class="cb-label" for="linear">Include linear attention KV cache</label>
-          <div class="cb-hint">Adds linear attention layers' KV cache contribution.</div>
-        </div>
+
+      <div class="field hidden" id="linearField">
+        <label class="toggle-label">
+          Include linear attention KV cache
+          <button class="toggle" id="linearToggle" role="switch" aria-checked="false">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </button>
+        </label>
+        <div class="field-hint">Adds linear attention layers' KV cache contribution.</div>
       </div>
+
       <div class="field">
         <label for="chartTitle">Chart title</label>
         <input type="text" id="chartTitle" class="text-input" value="KV Cache Comparison">
@@ -71,15 +94,14 @@
       </div>
     </div>
 
-    <!-- Right: Chart -->
     <div class="chart-card">
       <div class="chart-wrapper">
         <canvas id="chartCanvas"></canvas>
         <div id="emptyState" class="chart-empty">Select one or more models to begin comparison</div>
       </div>
       <div class="chart-actions">
-        <button id="btnDownload">Download PNG</button>
-        <button id="btnCopy">Copy to Clipboard</button>
+        <button id="btnDownload"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> PNG</button>
+        <button id="btnCopy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
       </div>
     </div>
   </div>

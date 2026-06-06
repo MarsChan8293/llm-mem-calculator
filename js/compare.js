@@ -1,5 +1,5 @@
 var PALETTE = [
-  '#3b5bdb', '#e03131', '#2b8a3e', '#d9480f', '#9c36b5',
+  '#6366f1', '#ef4444', '#22c55e', '#f59e0b', '#9c36b5',
   '#0c8599', '#c2255c', '#e8590c', '#6741d9', '#862e9c'
 ];
 
@@ -8,51 +8,88 @@ var chart = null;
 
 var $picker = document.getElementById('modelPicker');
 var $tags = document.getElementById('selectedTags');
-var $prec = document.getElementById('prec');
-var $idxPrec = document.getElementById('idxPrec');
+var $precSeg = document.getElementById('precSeg');
+var $idxPrecSeg = document.getElementById('idxPrecSeg');
+var $idxPrecField = document.getElementById('idxPrecField');
 var $seq = document.getElementById('seq');
-var $draft = document.getElementById('draft');
-var $linear = document.getElementById('linear');
+var $draftToggle = document.getElementById('draftToggle');
+var $linearToggle = document.getElementById('linearToggle');
 var $draftField = document.getElementById('draftField');
 var $linearField = document.getElementById('linearField');
-var $idxPrecField = document.getElementById('idxPrecField');
+var $draftHint = document.getElementById('draftHint');
 var $chartTitle = document.getElementById('chartTitle');
 var $xMax = document.getElementById('xMax');
 var $canvas = document.getElementById('chartCanvas');
 var $emptyState = document.getElementById('emptyState');
 var $btnDownload = document.getElementById('btnDownload');
 var $btnCopy = document.getElementById('btnCopy');
+var $themeToggle = document.getElementById('themeToggle');
+var $presetBtns = document.getElementById('presetBtns');
 
 var MAX_MODELS = 10;
 
-var _rs = getComputedStyle(document.documentElement);
-var CSS_TEXT = _rs.getPropertyValue('--text').trim();
-var CSS_TEXT2 = _rs.getPropertyValue('--text2').trim();
-var CSS_BORDER = _rs.getPropertyValue('--border').trim();
-var CSS_SANS = _rs.getPropertyValue('--sans').trim();
+var precValue = 'fp8_int8';
+var idxPrecValue = 'fp4_int4';
 
-MODEL_DATA.precision_options.forEach(function (p) {
-  var opt = document.createElement('option');
-  opt.value = p.id;
-  opt.textContent = p.label;
-  $prec.appendChild(opt);
-});
-$prec.value = 'fp8_int8';
+function initTheme() {
+  var stored = localStorage.getItem('kv-theme');
+  if (stored === 'dark' || stored === 'light') {
+    document.documentElement.setAttribute('data-theme', stored);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+}
 
-MODEL_DATA.indexer_precision_options.forEach(function (p) {
-  var opt = document.createElement('option');
-  opt.value = p.id;
-  opt.textContent = p.label;
-  $idxPrec.appendChild(opt);
-});
-$idxPrec.value = 'fp4_int4';
+function toggleTheme() {
+  var current = document.documentElement.getAttribute('data-theme');
+  var next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('kv-theme', next);
+  renderChart();
+}
+
+initTheme();
+$themeToggle.addEventListener('click', toggleTheme);
 
 function getPrecBytes() {
-  return MODEL_DATA.precision_options.find(function (p) { return p.id === $prec.value; }).bytes_per_element;
+  return MODEL_DATA.precision_options.find(function (p) { return p.id === precValue; }).bytes_per_element;
 }
 function getIdxPrecBytes() {
-  return MODEL_DATA.indexer_precision_options.find(function (p) { return p.id === $idxPrec.value; }).bytes_per_element;
+  return MODEL_DATA.indexer_precision_options.find(function (p) { return p.id === idxPrecValue; }).bytes_per_element;
 }
+
+function initSegControl(container, callback) {
+  var btns = container.querySelectorAll('.seg-option');
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btns.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      callback(btn.getAttribute('data-value'));
+    });
+  });
+}
+
+initSegControl($precSeg, function (val) {
+  precValue = val;
+  renderChart();
+});
+
+initSegControl($idxPrecSeg, function (val) {
+  idxPrecValue = val;
+  renderChart();
+});
+
+$draftToggle.addEventListener('click', function () {
+  var current = this.getAttribute('aria-checked') === 'true';
+  this.setAttribute('aria-checked', !current);
+  renderChart();
+});
+
+$linearToggle.addEventListener('click', function () {
+  var current = this.getAttribute('aria-checked') === 'true';
+  this.setAttribute('aria-checked', !current);
+  renderChart();
+});
 
 var families = [];
 var familyMap = {};
@@ -248,6 +285,10 @@ function formatYTick(value) {
   return Math.round(value) + ' GB';
 }
 
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function renderChart() {
   if (selectedModels.length === 0) {
     $emptyState.style.display = 'flex';
@@ -267,8 +308,8 @@ function renderChart() {
   var seqs = Math.max(1, parseInt($seq.value) || 1);
   var maxTokens = parseInt($xMax.value) || 1000000;
   var options = {
-    includeDraft: $draft.checked,
-    includeLinear: $linear.checked
+    includeDraft: $draftToggle.getAttribute('aria-checked') === 'true',
+    includeLinear: $linearToggle.getAttribute('aria-checked') === 'true'
   };
   var tokenPoints = generateTokenPoints(maxTokens);
 
@@ -287,6 +328,11 @@ function renderChart() {
     };
   });
 
+  var cssText = getCSSVar('--text');
+  var cssText2 = getCSSVar('--text2');
+  var cssBorder = getCSSVar('--border');
+  var cssSans = getCSSVar('--sans');
+
   var config = {
     type: 'line',
     data: { datasets: datasets },
@@ -299,8 +345,8 @@ function renderChart() {
           display: true,
           text: $chartTitle.value || 'KV Cache Comparison',
           align: 'center',
-          font: { size: 16, weight: 'bold', family: CSS_SANS },
-          color: CSS_TEXT,
+          font: { size: 16, weight: 'bold', family: cssSans },
+          color: cssText,
           padding: { bottom: 16 }
         },
         legend: {
@@ -309,8 +355,8 @@ function renderChart() {
           labels: {
             usePointStyle: true,
             pointStyle: 'line',
-            font: { size: 12, family: CSS_SANS },
-            color: CSS_TEXT,
+            font: { size: 12, family: cssSans },
+            color: cssText,
             padding: 16
           }
         },
@@ -330,25 +376,25 @@ function renderChart() {
           type: 'linear',
           min: 0,
           max: maxTokens,
-          title: { display: true, text: 'Tokens', font: { size: 12, family: CSS_SANS }, color: CSS_TEXT2 },
-          grid: { color: CSS_BORDER, borderDash: [4, 4], drawTicks: false },
-          border: { display: true, color: CSS_BORDER },
+          title: { display: true, text: 'Tokens', font: { size: 12, family: cssSans }, color: cssText2 },
+          grid: { color: cssBorder, borderDash: [4, 4], drawTicks: false },
+          border: { display: true, color: cssBorder },
           ticks: {
             callback: formatXTick,
-            font: { size: 11, family: CSS_SANS },
-            color: CSS_TEXT2,
+            font: { size: 11, family: cssSans },
+            color: cssText2,
             maxTicksLimit: 10
           }
         },
         y: {
           min: 0,
-          title: { display: true, text: 'Cache size (GB)', font: { size: 12, family: CSS_SANS }, color: CSS_TEXT2 },
-          grid: { color: CSS_BORDER, borderDash: [4, 4], drawTicks: false },
-          border: { display: true, color: CSS_BORDER },
+          title: { display: true, text: 'Cache size (GB)', font: { size: 12, family: cssSans }, color: cssText2 },
+          grid: { color: cssBorder, borderDash: [4, 4], drawTicks: false },
+          border: { display: true, color: cssBorder },
           ticks: {
             callback: formatYTick,
-            font: { size: 11, family: CSS_SANS },
-            color: CSS_TEXT2
+            font: { size: 11, family: cssSans },
+            color: cssText2
           }
         }
       },
@@ -357,9 +403,6 @@ function renderChart() {
       }
     }
   };
-
-  config.options.scales.x.border.display = true;
-  config.options.scales.y.border.display = true;
 
   if (chart) {
     chart.destroy();
@@ -410,11 +453,39 @@ $btnCopy.addEventListener('click', function () {
   }, 'image/png');
 });
 
-[$prec, $idxPrec, $seq, $chartTitle, $xMax].forEach(function (el) {
+$presetBtns.addEventListener('click', function (e) {
+  var btn = e.target.closest('.preset-btn');
+  if (!btn) return;
+  var preset = btn.getAttribute('data-preset');
+
+  selectedModels = [];
+
+  if (preset === 'top5') {
+    var top5Ids = ['deepseek-v4-pro', 'deepseek-v3.2', 'glm-5', 'qwen3.5-397b-a17b', 'minimax-m2.7'];
+    top5Ids.forEach(function (id) {
+      var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
+      if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
+    });
+  } else if (preset === 'deepseek') {
+    MODEL_DATA.models.forEach(function (m) {
+      if (m.family === 'DeepSeek' && selectedModels.length < MAX_MODELS) {
+        selectedModels.push(m);
+      }
+    });
+  } else if (preset === 'qwen') {
+    MODEL_DATA.models.forEach(function (m) {
+      if (m.family.indexOf('Qwen') === 0 && selectedModels.length < MAX_MODELS) {
+        selectedModels.push(m);
+      }
+    });
+  }
+
+  refresh();
+});
+
+[$seq, $chartTitle, $xMax].forEach(function (el) {
   el.addEventListener('change', renderChart);
   el.addEventListener('input', renderChart);
 });
-$draft.addEventListener('change', renderChart);
-$linear.addEventListener('change', renderChart);
 
 refresh();
