@@ -398,9 +398,7 @@ function calculate() {
       if (f.tip) {
         nameTooltip = nameTooltip ? nameTooltip + '\n' + f.tip : f.tip;
       }
-      var nameValText = nameTooltip.split('\n')[0] || '';
-      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>' +
-        (nameValText ? '<span class="formula-val">' + nameValText + '</span>' : '');
+      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
       return '<div class="formula-row">' +
         '<div class="formula-lhs">' +
           namePill +
