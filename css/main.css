@@ -650,6 +650,8 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   display: flex;
   height: 7px;
   gap: 1px;
+  width: 120px;
+  flex-shrink: 0;
 }
 .pattern-bar .seg {
   height: 100%;
