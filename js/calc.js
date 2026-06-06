@@ -27,7 +27,8 @@ var SYMBOL_NAMES = {
   d_vf: 'full_v_head_dim', d_vs: 'sliding_v_head_dim',
   h_kl: 'linear_key_heads', h_vl: 'linear_value_heads',
   d_kl: 'linear_key_head_dim', d_vl: 'linear_value_head_dim',
-  k_c: 'conv_kernel_dim'
+  k_c: 'conv_kernel_dim',
+  h_idx: 'sparse_index_heads', L_sp: 'sparse_layers'
 };
 
 /**
@@ -498,6 +499,94 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { label: 'Precision bytes', value: precB.toString() },
       { label: 'Total bytes', value: fmtNum(kvBytes) },
     ];
+
+  // ── msa_gqa (MiniMax Sparse Attention + GQA) ──
+  } else if (formula === 'msa_gqa') {
+    const layers = f.num_hidden_layers;
+    const kvHeads = f.num_key_value_heads;
+    const hd = f.head_dim;
+
+    // Main GQA KV: ALL layers store full KV (MSA sparsity is compute-only, not storage)
+    const elements = 2 * layers * kvHeads * hd * tokens;
+    kvBytes = elements * precB;
+    perTokenBytes = 2 * layers * kvHeads * hd * precB;
+
+    // Sparse attention index branch: only sparse layers store K_idx
+    const idxHd = f.sparse_index_dim;
+    const idxHeads = f.sparse_num_index_heads;
+    const sparseFreq = f.sparse_attention_freq;
+    const sparseLayers = sparseFreq ? sparseFreq.filter(function(v) { return v === 1; }).length : 0;
+    const fullAttnLayers = layers - sparseLayers;
+    const idxElements = sparseLayers * idxHeads * idxHd * tokens;
+    idxBytes = idxElements * idxB;
+    perTokenBytes += sparseLayers * idxHeads * idxHd * idxB;
+
+    // MTP draft layers
+    let draftLayers = 0;
+    if (includeDraft && f.mtp_transformer_layers) {
+      draftLayers = f.mtp_transformer_layers;
+      const draftElements = 2 * draftLayers * kvHeads * hd * tokens;
+      kvBytes += draftElements * precB;
+      perTokenBytes += 2 * draftLayers * kvHeads * hd * precB;
+    }
+
+    formulaTitle = model.label + ' MSA sparse attention + GQA';
+
+    // Per-layer bytes for pattern visualization
+    const kPerLayer = kvHeads * hd * tokens * precB;
+    const vPerLayer = kvHeads * hd * tokens * precB;
+    const idxPerLayer = idxHeads * idxHd * tokens * idxB;
+
+    var msaKvBar = [{ type: 'full', bytes: kvBytes }];
+    var msaIdxBar = [{ type: 'indexer', bytes: idxBytes }];
+    var msaTotalBar = [{ type: 'full', bytes: kvBytes }, { type: 'indexer', bytes: idxBytes }];
+    formulas = [
+      { name: 'KV', tip: 'Main GQA KV cache for all layers. MSA stores full uncompressed K/V; sparsity is compute-only.', expr: '2 \u00d7 L \u00d7 h_kv \u00d7 d_h \u00d7 T \u00d7 p', values: { L: layers, h_kv: kvHeads, d_h: hd, T: tokens, p: precB }, resultValue: kvBytes, bar: msaKvBar, ibarVal: fmtBytes(kvBytes) },
+      { name: 'Idx', tip: 'Sparse index branch K_idx cache for sparse layers only. Used for block-level TopK selection.', expr: 'L_sp \u00d7 h_idx \u00d7 d_idx \u00d7 T \u00d7 p_idx', values: { L_sp: sparseLayers, h_idx: idxHeads, d_idx: idxHd, T: tokens, p_idx: idxB }, resultValue: idxBytes, bar: msaIdxBar, ibarVal: fmtBytes(idxBytes) },
+      { name: 'Total', tip: 'Combined cache payload for all concurrent sequences.', expr: 'B \u00d7 (KV + Idx)', values: { KV: kvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: msaTotalBar, ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) }
+    ];
+
+    patterns = [];
+    if (fullAttnLayers > 0) {
+      patterns.push({
+        segs: [{ type: 'full', ratio: 0.5 }, { type: 'full-alt', ratio: 0.5 }],
+        count: fullAttnLayers,
+        label: 'full attn',
+        bytes: kPerLayer + vPerLayer
+      });
+    }
+    if (sparseLayers > 0) {
+      var sparseTotal = kPerLayer + vPerLayer + idxPerLayer;
+      patterns.push({
+        segs: [
+          { type: 'full', ratio: kPerLayer / sparseTotal },
+          { type: 'full-alt', ratio: vPerLayer / sparseTotal },
+          { type: 'indexer', ratio: idxPerLayer / sparseTotal }
+        ],
+        count: sparseLayers,
+        label: 'sparse attn',
+        bytes: sparseTotal
+      });
+    }
+    legendTypes = ['full', 'indexer'];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(layers) },
+      { label: 'Full attention layers', value: fmtNum(fullAttnLayers) },
+      { label: 'Sparse attention layers', value: fmtNum(sparseLayers) },
+      { label: 'KV heads', value: fmtNum(kvHeads) },
+      { label: 'Head dim', value: fmtNum(hd) },
+      { label: 'KV elements', value: fmtNum(elements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'Index heads', value: fmtNum(idxHeads) },
+      { label: 'Index head dim', value: fmtNum(idxHd) },
+      { label: 'Index elements', value: fmtNum(idxElements) },
+      { label: 'Index precision bytes', value: idxB.toString() },
+    ];
+    if (draftLayers > 0) {
+      breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
+    }
+    breakdown.push({ label: 'Total bytes', value: fmtNum(kvBytes + idxBytes) });
   }
 
   return {
