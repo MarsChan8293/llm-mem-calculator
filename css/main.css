@@ -523,6 +523,11 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   border-radius: var(--radius-md);
   padding: 8px 12px;
   border: 1px solid var(--surface2);
+  position: relative;
+  overflow: visible;
+}
+.formula-row:hover {
+  z-index: 10;
 }
 .formula-row + .formula-row {
   margin-top: 6px;
