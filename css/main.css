@@ -608,8 +608,8 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   pointer-events: none;
 }
 .formula-lhs .pill[data-tooltip]:hover::after {
-  left: -8px;
-  transform: none;
+  left: 50%;
+  transform: translateX(-50%);
   white-space: pre-line;
   width: max-content;
   min-width: 200px;
@@ -619,8 +619,8 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   line-height: 1.5;
 }
 .formula-lhs .pill[data-tooltip]:hover::before {
-  left: 16px;
-  transform: none;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 /* ── Breakdown ── */
