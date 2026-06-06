@@ -27,7 +27,7 @@ var $themeToggle = document.getElementById('themeToggle');
 var selectedModelId = 'deepseek-v4-pro';
 var currentUnit = 'gib';
 var precValue = 'fp8_int8';
-var idxPrecValue = 'fp4_int4';
+var idxPrecValue = 'fp8_int8';
 
 function tipIcon(tooltip) {
   return '<span class="tip-icon" data-tooltip="' + tooltip.replace(/"/g, '&quot;') + '">?</span>';
