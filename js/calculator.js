@@ -142,14 +142,12 @@ function buildPicker(filter) {
         item.appendChild(addBtn);
 
         item.addEventListener('click', function () {
-          if (selectedModelId === m.id) {
-            selectedModelId = null;
-          } else {
+          if (selectedModelId !== m.id) {
             selectedModelId = m.id;
+            renderTag();
+            buildPicker(searchInput.value);
+            onModelChange();
           }
-          renderTag();
-          buildPicker(searchInput.value);
-          onModelChange();
         });
 
         $modelPicker.appendChild(item);
