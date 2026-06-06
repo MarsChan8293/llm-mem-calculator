@@ -596,6 +596,7 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
 }
 .formula-expr { color: var(--text2); }
 .formula-expr .hl { color: var(--orange-dark); font-weight: 500; }
+.floor { color: var(--text2); font-weight: 500; font-size: 1.02em; }
 
 /* ── Inline bar (formula row) ── */
 .ibar {

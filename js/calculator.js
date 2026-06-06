@@ -404,7 +404,7 @@ function calculate() {
         vals.B = seqs;
       }
       var inputNames = { T: 1, B: 1, p: 1, p_idx: 1 };
-      var resultNames = { KV: 1, Total: 1, Idx: 1, KV_sw: 1, KV_cmp: 1, KV_f: 1, KV_s: 1, S_conv: 1, S_rec: 1 };
+      var resultNames = { KV: 1, Total: 1, Idx: 1, KV_sw: 1, KV_cmp: 1, KV_r4: 1, KV_r128: 1, KV_f: 1, KV_s: 1, S_conv: 1, S_rec: 1 };
       var keys = Object.keys(vals).sort(function (a, b) { return b.length - a.length; });
       if (keys.length > 0) {
         var re = new RegExp('\\b(' + keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'g');
@@ -435,6 +435,8 @@ function calculate() {
           return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + formatSymbol(match) + '</span>';
         });
       }
+      expr = expr.replace(/\u230a/g, '<span class="floor">\u230a</span>');
+      expr = expr.replace(/\u230b/g, '<span class="floor">\u230b</span>');
       var nameVal = f.resultValue !== undefined ? f.resultValue : vals[f.name];
       var nameTooltip = '';
       if (nameVal !== undefined) {
