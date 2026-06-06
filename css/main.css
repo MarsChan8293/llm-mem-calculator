@@ -342,39 +342,6 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   Range Slider
-   ═══════════════════════════════════════════════════════════════ */
-.range-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--surface2);
-  outline: none;
-  margin-top: 8px;
-}
-.range-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  border: 2px solid var(--bg);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-.range-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  border: 2px solid var(--bg);
-}
-
 .token-presets {
   display: flex;
   flex-wrap: wrap;

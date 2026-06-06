@@ -3,7 +3,6 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 var $modelPicker = document.getElementById('modelPicker');
 var $selectedTags = document.getElementById('selectedTags');
 var $tokens = document.getElementById('tokens');
-var $tokensSlider = document.getElementById('tokensSlider');
 var $seq = document.getElementById('seq');
 var $precSeg = document.getElementById('precSeg');
 var $idxPrecSeg = document.getElementById('idxPrecSeg');
@@ -194,10 +193,6 @@ function getIdxPrecBytes() {
 }
 
 function onModelChange() {
-  var model = getModel();
-  if (model) {
-    $tokensSlider.max = model.max_position_embeddings;
-  }
   calculate();
 }
 
@@ -237,7 +232,6 @@ $linearToggle.addEventListener('click', function () {
 $tokens.addEventListener('input', function () {
   var raw = parseFormattedNumber(this.value);
   if (isNaN(raw) || raw < 1) raw = 1;
-  $tokensSlider.value = raw;
   calculate();
 });
 
@@ -247,19 +241,12 @@ $tokens.addEventListener('blur', function () {
   this.value = formatWithCommas(raw);
 });
 
-$tokensSlider.addEventListener('input', function () {
-  var val = parseInt(this.value, 10);
-  $tokens.value = formatWithCommas(val);
-  calculate();
-});
-
 document.querySelectorAll('.token-preset').forEach(function (btn) {
   btn.addEventListener('click', function () {
     document.querySelectorAll('.token-preset').forEach(function (b) { b.classList.remove('active'); });
     btn.classList.add('active');
     var val = parseInt(btn.getAttribute('data-value'), 10);
     $tokens.value = formatWithCommas(val);
-    $tokensSlider.value = val;
     calculate();
   });
 });
