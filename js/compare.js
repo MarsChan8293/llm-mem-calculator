@@ -193,7 +193,9 @@ function removeModel(id) {
 
 function renderTags() {
   $tags.innerHTML = '';
-  $tagClearBtn.classList.toggle('visible', selectedModels.length > 0);
+  var hasModels = selectedModels.length > 0;
+  $tags.parentElement.classList.toggle('visible', hasModels);
+  $tagClearBtn.classList.toggle('visible', hasModels);
   selectedModels.forEach(function (m, idx) {
     var color = PALETTE[idx % PALETTE.length];
     var tag = document.createElement('span');

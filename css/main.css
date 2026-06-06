@@ -817,16 +817,18 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
 .picker-item.disabled .picker-add { pointer-events: none; }
 
 .selected-tags-row {
-  display: flex;
+  display: none;
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 12px;
+}
+.selected-tags-row.visible {
+  display: flex;
 }
 .selected-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  min-height: 32px;
   flex: 1;
 }
 .tag-clear-btn {
