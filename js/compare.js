@@ -252,7 +252,7 @@ function renderTags() {
 
 function updateConditionalFields() {
   var hasIndexer = selectedModels.some(function (m) {
-    return ['deepseek_v4_hybrid', 'dsa_mla'].includes(m.formula);
+    return ['deepseek_v4_hybrid', 'dsa_mla', 'msa_gqa'].includes(m.formula);
   });
   $idxPrecField.classList.toggle('hidden', !hasIndexer);
 

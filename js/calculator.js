@@ -349,10 +349,10 @@ function calculate() {
   var includeDraft = $draftToggle.getAttribute('aria-checked') === 'true';
   var includeLinear = $linearToggle.getAttribute('aria-checked') === 'true';
 
-  var hasIndexer = ['deepseek_v4_hybrid', 'dsa_mla'].includes(formula);
+  var hasIndexer = ['deepseek_v4_hybrid', 'dsa_mla', 'msa_gqa'].includes(formula);
   $idxPrecField.classList.toggle('hidden', !hasIndexer);
 
-  var hasDraft = ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'standard_gqa'].includes(formula) &&
+  var hasDraft = ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'standard_gqa', 'msa_gqa'].includes(formula) &&
     (f.num_nextn_predict_layers || f.mtp_transformer_layers);
   $draftField.classList.toggle('hidden', !hasDraft);
   if (hasDraft && formula === 'deepseek_v4_hybrid') {
@@ -509,6 +509,8 @@ function calculate() {
 
   if (formula === 'deepseek_v4_hybrid') {
     $noteSection.textContent = 'Production estimate uses the official sliding-window/compressed-cache layout. The default DeepSeek V4 setting uses FP8 attention cache and FP4 indexer cache.';
+  } else if (formula === 'msa_gqa') {
+    $noteSection.textContent = 'MiniMax M3 uses MSA (MiniMax Sparse Attention) which stores full uncompressed K/V for all layers. The sparse index branch adds a small K_idx overhead for block-level TopK selection. Sparsity reduces compute, not storage.';
   } else {
     $noteSection.textContent = 'Curated from official Hugging Face model config/source files and serving-engine references. Values describe KV cache capacity planning, not model weights or activation memory.';
   }
@@ -559,6 +561,9 @@ onModelChange();
       ['h_kl', 'linear_key_heads'], ['h_vl', 'linear_value_heads'],
       ['d_kl', 'linear_key_head_dim'], ['d_vl', 'linear_value_head_dim'],
       ['k_c', 'conv_kernel_dim']
+    ]},
+    { title: 'MSA Sparse Attention', items: [
+      ['L_sp', 'sparse_layers'], ['h_idx', 'sparse_index_heads'], ['d_idx', 'index_head_dim']
     ]},
     { title: 'Results', items: [
       ['KV', 'kv_bytes'], ['Idx', 'indexer_bytes'],
