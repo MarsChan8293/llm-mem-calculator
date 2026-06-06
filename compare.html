@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV Cache Comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="nav">
+    <span class="nav-brand">KV Cache Calculator</span>
+    <div class="nav-links">
+      <a href="index.html">Calculator</a>
+      <a href="compare.html" class="active">Compare</a>
+    </div>
+  </nav>
+
+  <h1>KV Cache Comparison</h1>
+  <p class="subtitle">Compare KV cache memory across models side by side.</p>
+
+  <div class="grid">
+    <!-- Left: Inputs -->
+    <div class="form-card">
+      <div class="field">
+        <label>Select models</label>
+        <div class="model-picker" id="modelPicker"></div>
+      </div>
+      <div class="selected-tags" id="selectedTags"></div>
+      <div class="field">
+        <label for="prec">KV precision</label>
+        <select id="prec"></select>
+      </div>
+      <div class="field hidden" id="idxPrecField">
+        <label for="idxPrec">Indexer precision</label>
+        <select id="idxPrec"></select>
+      </div>
+      <div class="field">
+        <label for="seq">Sequences</label>
+        <input type="number" id="seq" value="1" min="1" step="1">
+      </div>
+      <div class="checkbox-field hidden" id="draftField">
+        <input type="checkbox" id="draft">
+        <div>
+          <label class="cb-label" for="draft">Include draft KV cache</label>
+          <div class="cb-hint" id="draftHint">Adds model-specific MTP/draft KV layers when enabled by the serving stack.</div>
+        </div>
+      </div>
+      <div class="checkbox-field hidden" id="linearField">
+        <input type="checkbox" id="linear">
+        <div>
+          <label class="cb-label" for="linear">Include linear attention KV cache</label>
+          <div class="cb-hint">Adds linear attention layers' KV cache contribution.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="chartTitle">Chart title</label>
+        <input type="text" id="chartTitle" class="text-input" value="KV Cache Comparison">
+      </div>
+      <div class="field">
+        <label for="xMax">X axis max</label>
+        <select id="xMax">
+          <option value="100000">100K</option>
+          <option value="200000">200K</option>
+          <option value="500000">500K</option>
+          <option value="1000000" selected>1M</option>
+          <option value="2000000">2M</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Right: Chart -->
+    <div class="chart-card">
+      <div class="chart-wrapper">
+        <canvas id="chartCanvas"></canvas>
+        <div id="emptyState" class="chart-empty">Select one or more models to begin comparison</div>
+      </div>
+      <div class="chart-actions">
+        <button id="btnDownload">Download PNG</button>
+        <button id="btnCopy">Copy to Clipboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="js/data.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/compare.js"></script>
+</body>
+</html>
