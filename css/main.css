@@ -156,6 +156,29 @@ body {
   background: var(--accent);
   color: #fff;
 }
+.github-link {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+  text-decoration: none;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.github-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.github-link svg {
+  width: 16px;
+  height: 16px;
+}
 .theme-toggle {
   width: 32px;
   height: 32px;
@@ -169,7 +192,7 @@ body {
   color: var(--text2);
   transition: background 0.2s, border-color 0.2s, color 0.2s;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 8px;
 }
 .theme-toggle:hover {
   border-color: var(--accent);
