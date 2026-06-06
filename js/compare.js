@@ -10,6 +10,7 @@ var chart = null;
 
 var $picker = document.getElementById('modelPicker');
 var $tags = document.getElementById('selectedTags');
+var $tagClearBtn = document.getElementById('tagClearBtn');
 var $precSeg = document.getElementById('precSeg');
 var $idxPrecSeg = document.getElementById('idxPrecSeg');
 var $idxPrecField = document.getElementById('idxPrecField');
@@ -192,6 +193,7 @@ function removeModel(id) {
 
 function renderTags() {
   $tags.innerHTML = '';
+  $tagClearBtn.classList.toggle('visible', selectedModels.length > 0);
   selectedModels.forEach(function (m, idx) {
     var color = PALETTE[idx % PALETTE.length];
     var tag = document.createElement('span');
@@ -453,6 +455,12 @@ $btnCopy.addEventListener('click', function () {
       showToast('Failed to copy', true);
     });
   }, 'image/png');
+});
+
+$tagClearBtn.addEventListener('click', function () {
+  if (selectedModels.length === 0) return;
+  selectedModels = [];
+  refresh();
 });
 
 $presetBtns.addEventListener('click', function (e) {
