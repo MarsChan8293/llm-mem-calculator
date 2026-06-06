@@ -96,16 +96,27 @@ MODEL_DATA.models.forEach(function (m) {
 var collapsedFamilies = {};
 
 function buildPicker(filter) {
-  $modelPicker.innerHTML = '';
+  var searchInput = $modelPicker.querySelector('.picker-search');
+  var hadFocus = searchInput && document.activeElement === searchInput;
+  var cursorPos = searchInput ? searchInput.selectionStart : 0;
 
-  var searchInput = document.createElement('input');
-  searchInput.type = 'text';
-  searchInput.className = 'picker-search';
-  searchInput.placeholder = 'Search models...';
-  if (filter) searchInput.value = filter;
+  while ($modelPicker.lastChild) {
+    $modelPicker.removeChild($modelPicker.lastChild);
+  }
+
+  if (!searchInput) {
+    searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'picker-search';
+    searchInput.placeholder = 'Search models...';
+    searchInput.addEventListener('input', function () {
+      buildPicker(searchInput.value);
+    });
+  }
+  if (filter !== undefined) searchInput.value = filter;
   $modelPicker.appendChild(searchInput);
 
-  var query = (filter || '').toLowerCase().trim();
+  var query = (searchInput.value || '').toLowerCase().trim();
 
   families.forEach(function (fam) {
     var models = familyMap[fam].filter(function (m) {
@@ -155,9 +166,10 @@ function buildPicker(filter) {
     }
   });
 
-  searchInput.addEventListener('input', function () {
-    buildPicker(searchInput.value);
-  });
+  if (hadFocus) {
+    searchInput.focus();
+    searchInput.setSelectionRange(cursorPos, cursorPos);
+  }
 }
 
 function getCSSVar(name) {

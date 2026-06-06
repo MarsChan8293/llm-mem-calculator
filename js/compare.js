@@ -107,16 +107,27 @@ MODEL_DATA.models.forEach(function (m) {
 var collapsedFamilies = {};
 
 function buildPicker(filter) {
-  $picker.innerHTML = '';
+  var searchInput = $picker.querySelector('.picker-search');
+  var hadFocus = searchInput && document.activeElement === searchInput;
+  var cursorPos = searchInput ? searchInput.selectionStart : 0;
 
-  var searchInput = document.createElement('input');
-  searchInput.type = 'text';
-  searchInput.className = 'picker-search';
-  searchInput.placeholder = 'Search models...';
-  if (filter) searchInput.value = filter;
+  while ($picker.lastChild) {
+    $picker.removeChild($picker.lastChild);
+  }
+
+  if (!searchInput) {
+    searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'picker-search';
+    searchInput.placeholder = 'Search models...';
+    searchInput.addEventListener('input', function () {
+      buildPicker(searchInput.value);
+    });
+  }
+  if (filter !== undefined) searchInput.value = filter;
   $picker.appendChild(searchInput);
 
-  var query = (filter || '').toLowerCase().trim();
+  var query = (searchInput.value || '').toLowerCase().trim();
 
   var selectedIds = {};
   selectedModels.forEach(function (m) { selectedIds[m.id] = true; });
@@ -172,11 +183,10 @@ function buildPicker(filter) {
     }
   });
 
-  searchInput.addEventListener('input', function () {
-    buildPicker(searchInput.value);
-  });
-
-  searchInput.focus();
+  if (hadFocus) {
+    searchInput.focus();
+    searchInput.setSelectionRange(cursorPos, cursorPos);
+  }
 }
 
 function addModel(model) {
