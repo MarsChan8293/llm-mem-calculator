@@ -647,6 +647,22 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 10px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.breakdown-title:hover { color: var(--accent); }
+.breakdown-arrow {
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+}
+.breakdown-title.open .breakdown-arrow {
+  transform: rotate(90deg);
+}
+.breakdown-list.collapsed {
+  display: none;
 }
 .breakdown-list {
   display: flex;

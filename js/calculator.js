@@ -444,6 +444,13 @@ function calculate() {
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }
 
+var $breakdownToggle = document.getElementById('breakdownToggle');
+
+$breakdownToggle.addEventListener('click', function () {
+  var isOpen = $breakdownToggle.classList.toggle('open');
+  $breakdownGrid.classList.toggle('collapsed', !isOpen);
+});
+
 buildPicker('');
 renderTag();
 onModelChange();
