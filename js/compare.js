@@ -1,3 +1,5 @@
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
 var PALETTE = [
   '#6366f1', '#ef4444', '#22c55e', '#f59e0b', '#9c36b5',
   '#0c8599', '#c2255c', '#e8590c', '#6741d9', '#862e9c'

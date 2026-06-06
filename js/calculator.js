@@ -1,3 +1,5 @@
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
 var $modelPicker = document.getElementById('modelPicker');
 var $selectedTags = document.getElementById('selectedTags');
 var $tokens = document.getElementById('tokens');
