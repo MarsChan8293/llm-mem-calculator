@@ -28,6 +28,30 @@ var currentUnit = 'gib';
 var precValue = 'fp8_int8';
 var idxPrecValue = 'fp8_int8';
 
+var BAR_COLOR_MAP = {
+  'full': 'seg-full', 'full-alt': 'seg-full-alt',
+  'window': 'seg-window', 'window-alt': 'seg-window-alt',
+  'compressed': 'seg-compressed', 'rope': 'seg-rope',
+  'indexer': 'seg-indexer',
+  'fixed': 'seg-fixed', 'fixed-alt': 'seg-fixed-alt',
+  'window-empty': 'seg-empty'
+};
+var BAR_HEX_MAP = {
+  'full': '#4263eb', 'full-alt': '#5c7cfa',
+  'window': '#0c8599', 'window-alt': '#15aabf',
+  'compressed': '#ae3ec9', 'rope': '#e67700',
+  'indexer': '#e03131',
+  'fixed': '#2b8a3e', 'fixed-alt': '#40c057'
+};
+var LEGEND_LABEL_MAP = {
+  'full': 'Full KV', 'window': 'Window', 'compressed': 'Compressed',
+  'rope': 'RoPE', 'indexer': 'Indexer', 'fixed': 'Fixed state'
+};
+
+function getBarColorClass(type) { return BAR_COLOR_MAP[type] || 'seg-full'; }
+function getBarHex(type) { return BAR_HEX_MAP[type] || '#4263eb'; }
+function getLegendLabel(type) { return LEGEND_LABEL_MAP[type] || type; }
+
 function tipIcon(tooltip) {
   return '<span class="tip-icon" data-tooltip="' + tooltip.replace(/"/g, '&quot;') + '">?</span>';
 }
@@ -340,7 +364,7 @@ function calculate() {
   var hasLinear = formula === 'qwen_linear_full_hybrid';
   $linearField.classList.toggle('hidden', !hasLinear);
 
-  var result = calcKvCache(model, tokens, precB, idxB, { includeDraft: includeDraft, includeLinear: includeLinear });
+  var result = calcKvCache(model, tokens, precB, idxB, { includeDraft: includeDraft, includeLinear: includeLinear, seqs: seqs });
 
   var totalBytes = seqs * (result.kvBytes + result.idxBytes);
 
@@ -365,7 +389,15 @@ function calculate() {
   if (result.formulas.length > 0) {
     $formulaSection.classList.remove('hidden');
     $formulaTitle.textContent = result.formulaTitle;
-    $formulaBody.innerHTML = result.formulas.map(function (f) {
+    var globalMaxBarBytes = 0;
+    result.formulas.forEach(function (f) {
+      if (f.bar) {
+        f.bar.forEach(function (seg) {
+          if (seg.bytes > globalMaxBarBytes) globalMaxBarBytes = seg.bytes;
+        });
+      }
+    });
+    var formulaRowsHtml = result.formulas.map(function (f) {
       var expr = f.expr;
       var vals = Object.assign({}, f.values);
       if (expr.indexOf('B') !== -1) {
@@ -412,14 +444,55 @@ function calculate() {
         nameTooltip = nameTooltip ? nameTooltip + '\n' + f.tip : f.tip;
       }
       var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + formatSymbol(f.name) + '</span>';
+
+      var ibarHtml = '';
+      if (f.bar && f.bar.length > 0) {
+        ibarHtml = '<div class="ibar">';
+        f.bar.forEach(function (seg) {
+          var w = globalMaxBarBytes > 0 ? Math.max(1, (seg.bytes / globalMaxBarBytes) * 120) : 1;
+          ibarHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px"></div>';
+        });
+        ibarHtml += '</div>';
+        ibarHtml += '<div class="ibar-val">' + (f.ibarVal || '') + '</div>';
+      }
+
       return '<div class="formula-row">' +
         '<div class="formula-lhs">' +
           namePill +
           '<span class="formula-eq">=</span>' +
         '</div>' +
         '<div class="formula-rhs">' + expr + '</div>' +
+        ibarHtml +
       '</div>';
     }).join('');
+    var patternHtml = '';
+    if (result.patterns && result.patterns.length > 0) {
+      var maxPatternBytes = 0;
+      result.patterns.forEach(function (p) { if (p.bytes > maxPatternBytes) maxPatternBytes = p.bytes; });
+      patternHtml = '<div class="pattern-section">';
+      patternHtml += '<div class="pattern-title">Layer patterns</div>';
+      result.patterns.forEach(function (p) {
+        patternHtml += '<div class="pattern-row"><div class="pattern-bar">';
+        p.segs.forEach(function (seg) {
+          var segBytes = p.bytes * seg.ratio;
+          var w = maxPatternBytes > 0 ? Math.max(2, (segBytes / maxPatternBytes) * 120) : 2;
+          patternHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px"></div>';
+        });
+        patternHtml += '</div>';
+        patternHtml += '<span class="pattern-count">\u00d7' + p.count + '</span>';
+        patternHtml += '<span class="pattern-label">' + p.label + '</span>';
+        patternHtml += '</div>';
+      });
+      if (result.legendTypes && result.legendTypes.length >= 1) {
+        patternHtml += '<div class="layer-bar-legend">';
+        result.legendTypes.forEach(function (t) {
+          patternHtml += '<div class="lbleg"><div class="s" style="background:' + getBarHex(t) + '"></div>' + getLegendLabel(t) + '</div>';
+        });
+        patternHtml += '</div>';
+      }
+      patternHtml += '</div>';
+    }
+    $formulaBody.innerHTML = formulaRowsHtml + patternHtml;
   } else {
     $formulaSection.classList.add('hidden');
   }
