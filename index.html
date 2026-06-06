@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV Cache Size Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f7f8fa;
+    --surface2: #eef0f4;
+    --border: #e2e5eb;
+    --text: #1a202c;
+    --text2: #5a6577;
+    --text3: #8b95a8;
+    --accent: #3b5bdb;
+    --accent-light: #edf2ff;
+    --accent2: #4263eb;
+    --green: #2b8a3e;
+    --yellow: #e67700;
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .shell {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .subtitle {
+    color: var(--text2);
+    font-size: 0.9rem;
+    margin-bottom: 32px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  @media (max-width: 800px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Form ── */
+  .form-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text2);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  select, input[type="number"] {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    transition: border-color 0.15s;
+  }
+  select:focus, input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59,91,219,0.1);
+  }
+  input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
+
+  .checkbox-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .checkbox-field input[type="checkbox"] {
+    margin-top: 3px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+  .checkbox-field .cb-label {
+    font-size: 0.85rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .checkbox-field .cb-hint {
+    font-size: 0.75rem;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+
+  /* ── Results ── */
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .total-box {
+    background: var(--accent-light);
+    border: 1px solid #dbe4ff;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  .total-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  .total-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--accent2);
+    font-family: var(--mono);
+  }
+  .total-alt {
+    font-size: 0.85rem;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 600px) {
+    .metrics { grid-template-columns: 1fr; }
+  }
+  .metric-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .metric-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  .metric-value {
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  /* ── Formula section ── */
+  .formula-section {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .formula-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-bottom: 14px;
+  }
+  .formula-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+    font-family: var(--mono);
+    flex-wrap: wrap;
+  }
+  .formula-name {
+    color: var(--accent2);
+    font-weight: 500;
+    cursor: help;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .formula-name .tip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--surface2);
+    color: var(--text3);
+    font-size: 0.6rem;
+    font-weight: 700;
+    font-family: var(--sans);
+    cursor: help;
+    flex-shrink: 0;
+  }
+  .formula-eq { color: var(--text3); }
+  .formula-expr { color: var(--text2); }
+  .formula-expr .hl { color: var(--yellow); font-weight: 500; }
+
+  /* ── Breakdown ── */
+  .breakdown {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .breakdown-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+  }
+  .breakdown-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  @media (max-width: 600px) {
+    .breakdown-grid { grid-template-columns: 1fr; }
+  }
+  .breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--surface2);
+    font-size: 0.82rem;
+  }
+  .breakdown-row:nth-child(odd) { background: var(--surface); }
+  .breakdown-row .label {
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .breakdown-row .label .tip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface2);
+    color: var(--text3);
+    font-size: 0.55rem;
+    font-weight: 700;
+    font-family: var(--sans);
+    cursor: help;
+    flex-shrink: 0;
+  }
+  .breakdown-row .val {
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--text);
+    font-size: 0.8rem;
+  }
+
+  .note {
+    margin-top: 16px;
+    font-size: 0.78rem;
+    color: var(--text3);
+    line-height: 1.5;
+  }
+  .source-link {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .source-link:hover { text-decoration: underline; }
+
+  /* ── Tooltip ── */
+  .tip-icon[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--bg);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-family: var(--sans);
+    font-weight: 400;
+    white-space: normal;
+    max-width: 280px;
+    z-index: 100;
+    line-height: 1.4;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+  .tip-icon[data-tooltip]:hover::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 2px);
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--text);
+    z-index: 101;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <h1>KV Cache Size Calculator</h1>
+  <p class="subtitle">Estimate KV cache capacity for common production LLM families, including DeepSeek, GLM, Kimi, Qwen, MiniMax, MiMo, and others.</p>
+
+  <div class="grid">
+    <!-- Left: Inputs -->
+    <div class="form-card">
+      <div class="field">
+        <label for="family">Model family</label>
+        <select id="family"></select>
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model"></select>
+      </div>
+      <div class="field">
+        <label for="tokens">Tokens per sequence</label>
+        <input type="number" id="tokens" value="1024" min="1" step="1">
+      </div>
+      <div class="field">
+        <label for="seq">Sequences</label>
+        <input type="number" id="seq" value="1" min="1" step="1">
+      </div>
+      <div class="field">
+        <label for="prec">KV precision</label>
+        <select id="prec"></select>
+      </div>
+      <div class="field" id="idxPrecField">
+        <label for="idxPrec">Indexer precision</label>
+        <select id="idxPrec"></select>
+      </div>
+      <div class="checkbox-field hidden" id="draftField">
+        <input type="checkbox" id="draft">
+        <div>
+          <label class="cb-label" for="draft">Include draft KV cache</label>
+          <div class="cb-hint" id="draftHint">Adds model-specific MTP/draft KV layers when enabled by the serving stack.</div>
+        </div>
+      </div>
+      <div class="checkbox-field hidden" id="linearField">
+        <input type="checkbox" id="linear">
+        <div>
+          <label class="cb-label" for="linear">Include linear attention KV cache</label>
+          <div class="cb-hint">Adds linear attention layers' KV cache contribution.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Results -->
+    <div class="result-card">
+      <div class="total-box">
+        <div class="total-label">Total cache size</div>
+        <div class="total-value" id="totalGiB">—</div>
+        <div class="total-alt" id="totalGB"></div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric-box">
+          <div class="metric-label">KV cache size</div>
+          <div class="metric-value" id="kvSize">—</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Indexer cache size</div>
+          <div class="metric-value" id="idxSize">—</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Per token size</div>
+          <div class="metric-value" id="perToken">—</div>
+        </div>
+      </div>
+
+      <div id="formulaSection" class="formula-section hidden">
+        <div class="formula-title" id="formulaTitle"></div>
+        <div id="formulaBody"></div>
+      </div>
+
+      <div class="breakdown" id="breakdownSection">
+        <div class="breakdown-title">Breakdown</div>
+        <div class="breakdown-grid" id="breakdownGrid"></div>
+      </div>
+
+      <div class="note" id="noteSection"></div>
+      <a class="source-link" id="sourceLink" href="#" target="_blank" rel="noopener"></a>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// DATA — extracted from kvcache.ai
+// ═══════════════════════════════════════════════════════════════
+const DATA = {
+  precision_options: [
+    { id: "bf16_fp16", label: "BF16 / FP16", bytes_per_element: 2 },
+    { id: "fp8_int8",  label: "FP8 / INT8",  bytes_per_element: 1 },
+    { id: "fp4_int4",  label: "FP4 / INT4",  bytes_per_element: 0.5 }
+  ],
+  indexer_precision_options: [
+    { id: "bf16_fp16", label: "BF16 / FP16", bytes_per_element: 2 },
+    { id: "fp8_int8",  label: "FP8 / INT8",  bytes_per_element: 1 },
+    { id: "fp4_int4",  label: "FP4 / INT4",  bytes_per_element: 0.5 }
+  ],
+  models: [
+    { id:"deepseek-v4-pro", label:"DeepSeek V4 Pro", family:"DeepSeek", formula:"deepseek_v4_hybrid", default_tokens:1024, max_position_embeddings:1048576, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:61, num_key_value_heads:1, head_dim:512, sliding_window:128, index_head_dim:128, index_topk:1024, compress_ratios:[128,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,0] }},
+    { id:"deepseek-v4-flash", label:"DeepSeek V4 Flash", family:"DeepSeek", formula:"deepseek_v4_hybrid", default_tokens:1024, max_position_embeddings:1048576, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:43, num_key_value_heads:1, head_dim:512, sliding_window:128, index_head_dim:128, index_topk:512, compress_ratios:[0,0,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,0] }},
+    { id:"deepseek-v3.2", label:"DeepSeek V3.2", family:"DeepSeek", formula:"dsa_mla", default_tokens:1024, max_position_embeddings:163840, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-V3.2/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:61, num_key_value_heads:128, kv_lora_rank:512, qk_nope_head_dim:128, qk_rope_head_dim:64, v_head_dim:128, qk_head_dim:192, index_head_dim:128, index_n_heads:64, index_topk:2048, num_nextn_predict_layers:1 }},
+    { id:"deepseek-v3", label:"DeepSeek V3", family:"DeepSeek", formula:"mla", default_tokens:1024, max_position_embeddings:163840, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-V3/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:61, num_key_value_heads:128, kv_lora_rank:512, qk_nope_head_dim:128, qk_rope_head_dim:64, v_head_dim:128, num_nextn_predict_layers:1 }},
+    { id:"deepseek-r1", label:"DeepSeek R1", family:"DeepSeek", formula:"mla", default_tokens:1024, max_position_embeddings:163840, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-R1/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:61, num_key_value_heads:128, kv_lora_rank:512, qk_nope_head_dim:128, qk_rope_head_dim:64, v_head_dim:128, num_nextn_predict_layers:1 }},
+    { id:"glm-5", label:"GLM-5", family:"GLM", formula:"dsa_mla", default_tokens:1024, max_position_embeddings:202752, source_url:"https://huggingface.co/zai-org/GLM-5/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:78, num_key_value_heads:64, kv_lora_rank:512, qk_head_dim:256, qk_nope_head_dim:192, qk_rope_head_dim:64, v_head_dim:256, index_head_dim:128, index_n_heads:32, index_topk:2048, num_nextn_predict_layers:1 }},
+    { id:"glm-5.1", label:"GLM-5.1", family:"GLM", formula:"dsa_mla", default_tokens:1024, max_position_embeddings:202752, source_url:"https://huggingface.co/zai-org/GLM-5.1/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:78, num_key_value_heads:64, kv_lora_rank:512, qk_head_dim:256, qk_nope_head_dim:192, qk_rope_head_dim:64, v_head_dim:256, index_head_dim:128, index_n_heads:32, index_topk:2048, num_nextn_predict_layers:1 }},
+    { id:"kimi-k2.5", label:"Kimi K2.5", family:"Kimi", formula:"mla", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/moonshotai/Kimi-K2.5/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:61, num_key_value_heads:64, kv_lora_rank:512, qk_nope_head_dim:128, qk_rope_head_dim:64, v_head_dim:128 }},
+    { id:"kimi-k2.6", label:"Kimi K2.6", family:"Kimi", formula:"mla", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/moonshotai/Kimi-K2.6/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:61, num_key_value_heads:64, kv_lora_rank:512, qk_nope_head_dim:128, qk_rope_head_dim:64, v_head_dim:128 }},
+    { id:"qwen3.6-27b", label:"Qwen3.6-27B", family:"Qwen3.6", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.6-27B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:64, num_attention_heads:24, num_key_value_heads:4, head_dim:256, full_attention_layers:16, linear_attention_layers:48, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:48, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.6-35b-a3b", label:"Qwen3.6-35B-A3B", family:"Qwen3.6", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.6-35B-A3B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:40, num_attention_heads:16, num_key_value_heads:2, head_dim:256, full_attention_layers:10, linear_attention_layers:30, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:32, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-397b-a17b", label:"Qwen3.5-397B-A17B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-397B-A17B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:60, num_attention_heads:32, num_key_value_heads:2, head_dim:256, full_attention_layers:15, linear_attention_layers:45, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:64, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-122b-a10b", label:"Qwen3.5-122B-A10B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-122B-A10B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:48, num_attention_heads:32, num_key_value_heads:2, head_dim:256, full_attention_layers:12, linear_attention_layers:36, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:64, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-35b-a3b", label:"Qwen3.5-35B-A3B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-35B-A3B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:40, num_attention_heads:16, num_key_value_heads:2, head_dim:256, full_attention_layers:10, linear_attention_layers:30, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:32, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-27b", label:"Qwen3.5-27B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-27B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:64, num_attention_heads:24, num_key_value_heads:4, head_dim:256, full_attention_layers:16, linear_attention_layers:48, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:48, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-9b", label:"Qwen3.5-9B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-9B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:32, num_attention_heads:16, num_key_value_heads:4, head_dim:256, full_attention_layers:8, linear_attention_layers:24, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:32, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-4b", label:"Qwen3.5-4B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-4B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:32, num_attention_heads:16, num_key_value_heads:4, head_dim:256, full_attention_layers:8, linear_attention_layers:24, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:32, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-2b", label:"Qwen3.5-2B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-2B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:24, num_attention_heads:8, num_key_value_heads:2, head_dim:256, full_attention_layers:6, linear_attention_layers:18, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:16, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3.5-0.8b", label:"Qwen3.5-0.8B", family:"Qwen3.5", formula:"qwen_linear_full_hybrid", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/Qwen/Qwen3.5-0.8B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:24, num_attention_heads:8, num_key_value_heads:2, head_dim:256, full_attention_layers:6, linear_attention_layers:18, linear_conv_kernel_dim:4, linear_key_head_dim:128, linear_num_key_heads:16, linear_num_value_heads:16, linear_value_head_dim:128, mtp_num_hidden_layers:1 }},
+    { id:"qwen3-235b-a22b", label:"Qwen3-235B-A22B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-235B-A22B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:94, num_attention_heads:64, num_key_value_heads:4, head_dim:128 }},
+    { id:"qwen3-32b", label:"Qwen3-32B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-32B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:64, num_attention_heads:64, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen3-30b-a3b", label:"Qwen3-30B-A3B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-30B-A3B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:48, num_attention_heads:32, num_key_value_heads:4, head_dim:128 }},
+    { id:"qwen3-14b", label:"Qwen3-14B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-14B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:40, num_attention_heads:40, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen3-8b", label:"Qwen3-8B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-8B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:36, num_attention_heads:32, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen3-4b", label:"Qwen3-4B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:36, num_attention_heads:32, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen3-1.7b", label:"Qwen3-1.7B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-1.7B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:28, num_attention_heads:16, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen3-0.6b", label:"Qwen3-0.6B", family:"Qwen3", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:40960, source_url:"https://huggingface.co/Qwen/Qwen3-0.6B/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:28, num_attention_heads:16, num_key_value_heads:8, head_dim:128 }},
+    { id:"qwen2.5-72b", label:"Qwen2.5-72B", family:"Qwen2.5", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:32768, source_url:"https://huggingface.co/Qwen/Qwen2.5-72B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:80, num_attention_heads:64, num_key_value_heads:8, head_dim:128, sliding_window:131072, max_window_layers:70, use_sliding_window:false }},
+    { id:"qwen2.5-32b", label:"Qwen2.5-32B", family:"Qwen2.5", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:32768, source_url:"https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:64, num_attention_heads:40, num_key_value_heads:8, head_dim:128, sliding_window:131072, max_window_layers:70, use_sliding_window:false }},
+    { id:"qwen2.5-14b", label:"Qwen2.5-14B", family:"Qwen2.5", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:32768, source_url:"https://huggingface.co/Qwen/Qwen2.5-14B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:48, num_attention_heads:40, num_key_value_heads:8, head_dim:128, sliding_window:131072, max_window_layers:70, use_sliding_window:false }},
+    { id:"qwen2.5-7b", label:"Qwen2.5-7B", family:"Qwen2.5", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:32768, source_url:"https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:28, num_attention_heads:28, num_key_value_heads:4, head_dim:128, sliding_window:131072, max_window_layers:28, use_sliding_window:false }},
+    { id:"qwen2.5-coder-32b", label:"Qwen2.5-Coder-32B", family:"Qwen2.5", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:32768, source_url:"https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:64, num_attention_heads:40, num_key_value_heads:8, head_dim:128, sliding_window:131072, max_window_layers:64, use_sliding_window:false }},
+    { id:"llama-3.1-8b", label:"Llama 3.1 8B", family:"Llama", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:32, num_attention_heads:32, num_key_value_heads:8, head_dim:128 }},
+    { id:"llama-3.1-70b", label:"Llama 3.1 70B", family:"Llama", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:80, num_attention_heads:64, num_key_value_heads:8, head_dim:128 }},
+    { id:"llama-3.3-70b", label:"Llama 3.3 70B", family:"Llama", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct/raw/main/config.json", source_retrieved_at:"2026-05-22", fields:{ num_hidden_layers:80, num_attention_heads:64, num_key_value_heads:8, head_dim:128 }},
+    { id:"gemma-4-e2b", label:"Gemma 4 E2B", family:"Gemma", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/google/gemma-4-E2B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:35, num_attention_heads:8, num_key_value_heads:1, head_dim:256, global_head_dim:512, full_attention_layers:3, sliding_attention_layers:12, sliding_window:512, num_kv_shared_layers:20, stored_layers:15 }},
+    { id:"gemma-4-e4b", label:"Gemma 4 E4B", family:"Gemma", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/google/gemma-4-E4B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:42, num_attention_heads:8, num_key_value_heads:2, head_dim:256, global_head_dim:512, full_attention_layers:4, sliding_attention_layers:20, sliding_window:512, num_kv_shared_layers:18, stored_layers:24 }},
+    { id:"gemma-4-26b-a4b", label:"Gemma 4 26B-A4B", family:"Gemma", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/google/gemma-4-26B-A4B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:30, num_attention_heads:16, num_key_value_heads:8, head_dim:256, global_head_dim:512, full_attention_layers:5, sliding_attention_layers:25, sliding_window:1024, num_kv_shared_layers:0, stored_layers:30, num_global_key_value_heads:2 }},
+    { id:"gemma-4-31b", label:"Gemma 4 31B", family:"Gemma", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:262144, source_url:"https://huggingface.co/google/gemma-4-31B/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:60, num_attention_heads:32, num_key_value_heads:16, head_dim:256, global_head_dim:512, full_attention_layers:10, sliding_attention_layers:50, sliding_window:1024, num_kv_shared_layers:0, stored_layers:60, num_global_key_value_heads:4 }},
+    { id:"cohere-command-r-v01", label:"Cohere Command R v01", family:"Cohere", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/CohereLabs/c4ai-command-r-v01/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:40, num_attention_heads:64, num_key_value_heads:64, head_dim:128, config_max_position_embeddings:8192, model_max_length:131072 }},
+    { id:"cohere-command-r-plus", label:"Cohere Command R+", family:"Cohere", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/CohereLabs/c4ai-command-r-plus/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:64, num_attention_heads:96, num_key_value_heads:8, head_dim:128, config_max_position_embeddings:8192, model_max_length:131072 }},
+    { id:"cohere-command-r7b-12-2024", label:"Cohere Command R7B 12-2024", family:"Cohere", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:132096, source_url:"https://huggingface.co/CohereLabs/c4ai-command-r7b-12-2024/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:32, num_attention_heads:32, num_key_value_heads:8, head_dim:128, full_attention_layers:8, sliding_attention_layers:24, sliding_window:4096, sliding_window_pattern:4 }},
+    { id:"cohere-command-a-03-2025", label:"Cohere Command A 03-2025", family:"Cohere", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:131072, source_url:"https://huggingface.co/CohereLabs/c4ai-command-a-03-2025/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:64, num_attention_heads:96, num_key_value_heads:8, head_dim:128, full_attention_layers:16, sliding_attention_layers:48, sliding_window:4096, sliding_window_pattern:4 }},
+    { id:"cohere-command-a-plus-05-2026", label:"Cohere Command A Plus 05-2026", family:"Cohere", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:200000, source_url:"https://huggingface.co/CohereLabs/command-a-plus-05-2026-bf16/raw/main/config.json", source_retrieved_at:"2026-05-23", fields:{ num_hidden_layers:32, num_attention_heads:128, num_key_value_heads:8, head_dim:128, full_attention_layers:8, sliding_attention_layers:24, sliding_window:4096 }},
+    { id:"mimo-v2.5", label:"MiMo-V2.5", family:"MiMo", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:1048576, source_url:"https://huggingface.co/XiaomiMiMo/MiMo-V2.5/raw/main/config.json", source_retrieved_at:"2026-05-27", fields:{ num_hidden_layers:48, num_attention_heads:64, num_key_value_heads:4, head_dim:192, full_attention_layers:9, sliding_attention_layers:39, sliding_window:128, sliding_window_size:128, swa_head_dim:192, swa_num_attention_heads:64, swa_num_key_value_heads:8, swa_v_head_dim:128, v_head_dim:128 }},
+    { id:"mimo-v2.5-pro", label:"MiMo-V2.5-Pro", family:"MiMo", formula:"mixed_full_sliding_gqa", default_tokens:1024, max_position_embeddings:1048576, source_url:"https://huggingface.co/XiaomiMiMo/MiMo-V2.5-Pro/raw/main/config.json", source_retrieved_at:"2026-05-27", fields:{ num_hidden_layers:70, num_attention_heads:128, num_key_value_heads:8, head_dim:192, full_attention_layers:10, sliding_attention_layers:60, sliding_window:128, sliding_window_size:128, swa_head_dim:192, swa_num_attention_heads:128, swa_num_key_value_heads:8, swa_v_head_dim:128, v_head_dim:128 }},
+    { id:"minimax-m2", label:"MiniMax M2", family:"MiniMax", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:196608, source_url:"https://huggingface.co/MiniMaxAI/MiniMax-M2/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:62, num_attention_heads:48, num_key_value_heads:8, head_dim:128, mtp_transformer_layers:1, num_mtp_modules:3, rotary_dim:64, use_mtp:true }},
+    { id:"minimax-m2.1", label:"MiniMax M2.1", family:"MiniMax", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:196608, source_url:"https://huggingface.co/MiniMaxAI/MiniMax-M2.1/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:62, num_attention_heads:48, num_key_value_heads:8, head_dim:128, mtp_transformer_layers:1, num_mtp_modules:3, rotary_dim:64, use_mtp:true }},
+    { id:"minimax-m2.5", label:"MiniMax M2.5", family:"MiniMax", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:196608, source_url:"https://huggingface.co/MiniMaxAI/MiniMax-M2.5/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:62, num_attention_heads:48, num_key_value_heads:8, head_dim:128, mtp_transformer_layers:1, num_mtp_modules:3, rotary_dim:64, use_mtp:true }},
+    { id:"minimax-m2.7", label:"MiniMax M2.7", family:"MiniMax", formula:"standard_gqa", default_tokens:1024, max_position_embeddings:204800, source_url:"https://huggingface.co/MiniMaxAI/MiniMax-M2.7/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:62, num_attention_heads:48, num_key_value_heads:8, head_dim:128, mtp_transformer_layers:1, num_mtp_modules:3, rotary_dim:64, use_mtp:true }}
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════
+// DOM refs
+// ═══════════════════════════════════════════════════════════════
+const $family = document.getElementById('family');
+const $model  = document.getElementById('model');
+const $tokens = document.getElementById('tokens');
+const $seq    = document.getElementById('seq');
+const $prec   = document.getElementById('prec');
+const $idxPrec = document.getElementById('idxPrec');
+const $draft  = document.getElementById('draft');
+const $linear = document.getElementById('linear');
+const $idxPrecField = document.getElementById('idxPrecField');
+const $draftField  = document.getElementById('draftField');
+const $linearField = document.getElementById('linearField');
+const $draftHint   = document.getElementById('draftHint');
+
+// ═══════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════
+function fmtBytes(bytes) {
+  if (bytes < 1024) return bytes.toFixed(0) + ' B';
+  if (bytes < 1024**2) return (bytes / 1024).toFixed(5) + ' KiB';
+  if (bytes < 1024**3) return (bytes / 1024**2).toFixed(5) + ' MiB';
+  return (bytes / 1024**3).toFixed(5) + ' GiB';
+}
+function fmtBytesGB(bytes) {
+  if (bytes < 1e3) return bytes.toFixed(0) + ' B';
+  if (bytes < 1e6) return (bytes / 1e3).toFixed(5) + ' KB';
+  if (bytes < 1e9) return (bytes / 1e6).toFixed(5) + ' MB';
+  return (bytes / 1e9).toFixed(5) + ' GB';
+}
+function fmtNum(n) { return n.toLocaleString('en-US'); }
+
+function tipIcon(tooltip) {
+  return `<span class="tip-icon" data-tooltip="${tooltip.replace(/"/g, '&quot;')}">?</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Init dropdowns
+// ═══════════════════════════════════════════════════════════════
+const families = [...new Set(DATA.models.map(m => m.family))];
+families.forEach(f => {
+  const opt = document.createElement('option');
+  opt.value = f; opt.textContent = f;
+  $family.appendChild(opt);
+});
+
+DATA.precision_options.forEach(p => {
+  const opt = document.createElement('option');
+  opt.value = p.id; opt.textContent = p.label;
+  $prec.appendChild(opt);
+});
+$prec.value = 'fp8_int8';
+
+DATA.indexer_precision_options.forEach(p => {
+  const opt = document.createElement('option');
+  opt.value = p.id; opt.textContent = p.label;
+  $idxPrec.appendChild(opt);
+});
+$idxPrec.value = 'fp4_int4';
+
+function populateModels(family) {
+  $model.innerHTML = '';
+  const models = DATA.models.filter(m => m.family === family);
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id; opt.textContent = m.label;
+    $model.appendChild(opt);
+  });
+}
+populateModels($family.value);
+
+function getModel() {
+  return DATA.models.find(m => m.id === $model.value);
+}
+function getPrecBytes() {
+  return DATA.precision_options.find(p => p.id === $prec.value).bytes_per_element;
+}
+function getIdxPrecBytes() {
+  return DATA.indexer_precision_options.find(p => p.id === $idxPrec.value).bytes_per_element;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Calculation engine
+// ═══════════════════════════════════════════════════════════════
+function calculate() {
+  const model = getModel();
+  if (!model) return;
+  const tokens = Math.max(1, parseInt($tokens.value) || 1);
+  const seqs   = Math.max(1, parseInt($seq.value) || 1);
+  const precB  = getPrecBytes();
+  const idxB   = getIdxPrecBytes();
+  const f = model.fields;
+  const formula = model.formula;
+  const includeDraft  = $draft.checked;
+  const includeLinear = $linear.checked;
+
+  // Show/hide conditional fields
+  const hasIndexer = ['deepseek_v4_hybrid', 'dsa_mla'].includes(formula);
+  $idxPrecField.classList.toggle('hidden', !hasIndexer);
+
+  const hasDraft = ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'standard_gqa'].includes(formula) &&
+    (f.num_nextn_predict_layers || f.mtp_transformer_layers);
+  $draftField.classList.toggle('hidden', !hasDraft);
+  if (hasDraft && formula === 'deepseek_v4_hybrid') {
+    $draftHint.textContent = 'Adds model-specific MTP/draft KV layers when enabled by the serving stack. DeepSeek V4 draft layers use ratio=0 sliding-window cache.';
+  } else if (hasDraft) {
+    $draftHint.textContent = 'Adds model-specific MTP/draft KV layers when enabled by the serving stack.';
+  }
+
+  const hasLinear = formula === 'qwen_linear_full_hybrid';
+  $linearField.classList.toggle('hidden', !hasLinear);
+
+  let kvBytes = 0, idxBytes = 0, perTokenBytes = 0;
+  let breakdown = [];
+  let formulas = [];
+  let formulaTitle = '';
+
+  if (formula === 'standard_gqa') {
+    const layers = f.num_hidden_layers;
+    const kvHeads = f.num_key_value_heads;
+    const hd = f.head_dim;
+    const elements = 2 * layers * kvHeads * hd * tokens;
+    kvBytes = elements * precB;
+    perTokenBytes = 2 * layers * kvHeads * hd * precB;
+
+    // MTP draft
+    let draftLayers = 0;
+    if (includeDraft && f.mtp_transformer_layers) {
+      draftLayers = f.mtp_transformer_layers;
+      const draftElements = 2 * draftLayers * kvHeads * hd * tokens;
+      kvBytes += draftElements * precB;
+      perTokenBytes += 2 * draftLayers * kvHeads * hd * precB;
+    }
+
+    const totalBytes = seqs * kvBytes;
+
+    formulaTitle = `${model.label} standard GQA`;
+    formulas = [
+      { name: 'kv_bytes', tip: `Main ${model.label} KV cache before applying precision.`, expr: `2 × layers × kv_heads × head_dim × tokens × precision_bytes` },
+      { name: 'total_bytes', tip: `Combined ${model.label} cache payload for all concurrent sequences.`, expr: `sequences × kv_bytes` }
+    ];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(layers) },
+      { label: 'KV heads', value: fmtNum(kvHeads) },
+      { label: 'Head dim', value: fmtNum(hd) },
+      { label: 'KV elements', value: fmtNum(elements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+    ];
+    if (draftLayers > 0) {
+      breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
+    }
+    breakdown.push({ label: 'Total bytes', value: fmtNum(totalBytes) });
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(kvBytes);
+    document.getElementById('idxSize').textContent = '—';
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+
+  } else if (formula === 'mla') {
+    const layers = f.num_hidden_layers;
+    const kvLoraRank = f.kv_lora_rank;
+    // MLA: KV cache stores compressed (kv_lora_rank) per head, not full heads
+    // Per token per layer: 2 * kv_lora_rank (K and V compressed)
+    const elements = 2 * layers * kvLoraRank * tokens;
+    kvBytes = elements * precB;
+    perTokenBytes = 2 * layers * kvLoraRank * precB;
+
+    let draftLayers = 0;
+    if (includeDraft && f.num_nextn_predict_layers) {
+      draftLayers = f.num_nextn_predict_layers;
+      const draftElements = 2 * draftLayers * kvLoraRank * tokens;
+      kvBytes += draftElements * precB;
+      perTokenBytes += 2 * draftLayers * kvLoraRank * precB;
+    }
+
+    const totalBytes = seqs * kvBytes;
+
+    formulaTitle = `${model.label} multi-head latent attention (MLA)`;
+    formulas = [
+      { name: 'kv_bytes', tip: `Compressed KV cache using MLA projection. Each layer stores kv_lora_rank compressed elements per token.`, expr: `2 × layers × kv_lora_rank × tokens × precision_bytes` },
+      { name: 'total_bytes', tip: `Combined cache payload for all concurrent sequences.`, expr: `sequences × kv_bytes` }
+    ];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(layers) },
+      { label: 'KV LoRA rank', value: fmtNum(kvLoraRank) },
+      { label: 'KV elements', value: fmtNum(elements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+    ];
+    if (draftLayers > 0) {
+      breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
+    }
+    breakdown.push({ label: 'Total bytes', value: fmtNum(totalBytes) });
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(kvBytes);
+    document.getElementById('idxSize').textContent = '—';
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+
+  } else if (formula === 'dsa_mla') {
+    // DSA+MLA: like MLA but with separate indexer cache
+    const layers = f.num_hidden_layers;
+    const kvLoraRank = f.kv_lora_rank;
+    const elements = 2 * layers * kvLoraRank * tokens;
+    kvBytes = elements * precB;
+    perTokenBytes = 2 * layers * kvLoraRank * precB;
+
+    // Indexer cache
+    const idxHeads = f.index_n_heads;
+    const idxHd = f.index_head_dim;
+    const idxElements = 2 * layers * idxHeads * idxHd * tokens;
+    idxBytes = idxElements * idxB;
+    perTokenBytes += 2 * layers * idxHeads * idxHd * idxB;
+
+    let draftLayers = 0;
+    if (includeDraft && f.num_nextn_predict_layers) {
+      draftLayers = f.num_nextn_predict_layers;
+      const draftElements = 2 * draftLayers * kvLoraRank * tokens;
+      kvBytes += draftElements * precB;
+      perTokenBytes += 2 * draftLayers * kvLoraRank * precB;
+    }
+
+    const totalBytes = seqs * (kvBytes + idxBytes);
+
+    formulaTitle = `${model.label} DSA + MLA attention`;
+    formulas = [
+      { name: 'kv_bytes', tip: `Compressed KV cache using MLA projection.`, expr: `2 × layers × kv_lora_rank × tokens × precision_bytes` },
+      { name: 'indexer_bytes', tip: `Indexer cache for DSA sparse attention lookup.`, expr: `2 × layers × index_n_heads × index_head_dim × tokens × indexer_precision_bytes` },
+      { name: 'total_bytes', tip: `Combined cache payload for all concurrent sequences.`, expr: `sequences × (kv_bytes + indexer_bytes)` }
+    ];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(layers) },
+      { label: 'KV LoRA rank', value: fmtNum(kvLoraRank) },
+      { label: 'KV elements', value: fmtNum(elements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'Indexer heads', value: fmtNum(idxHeads) },
+      { label: 'Indexer head dim', value: fmtNum(idxHd) },
+      { label: 'Indexer elements', value: fmtNum(idxElements) },
+      { label: 'Indexer precision bytes', value: idxB.toString() },
+    ];
+    if (draftLayers > 0) {
+      breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
+    }
+    breakdown.push({ label: 'Total bytes', value: fmtNum(totalBytes) });
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(kvBytes);
+    document.getElementById('idxSize').textContent = fmtBytes(idxBytes);
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+
+  } else if (formula === 'deepseek_v4_hybrid') {
+    const ratios = f.compress_ratios;
+    const sw = f.sliding_window;
+    const hd = f.head_dim;
+    const idxHd = f.index_head_dim;
+    const totalLayers = f.num_hidden_layers;
+
+    // Count layers by ratio
+    const ratioCounts = {};
+    ratios.forEach(r => { ratioCounts[r] = (ratioCounts[r] || 0) + 1; });
+    const activeLayers = ratios.filter(r => r > 0).length;
+    const ratio0Layers = ratioCounts[0] || 0;
+    const ratio4Layers = ratioCounts[4] || 0;
+    const ratio128Layers = ratioCounts[128] || 0;
+
+    // Sliding window KV: all active layers (ratio > 0)
+    const slidingElements = activeLayers * sw * hd;
+    // Compressed KV: sum over ratio>0 layers of floor(tokens/ratio) * hd
+    let compressedElements = 0;
+    ratios.forEach(r => {
+      if (r > 0) compressedElements += Math.floor(tokens / r) * hd;
+    });
+    const kvElements = slidingElements + compressedElements;
+    kvBytes = kvElements * precB;
+
+    // Ratio=0 layers: only sliding window
+    const ratio0Elements = ratio0Layers * sw * hd;
+
+    // Indexer: ratio=4 layers
+    const idxElements = ratio4Layers * Math.floor(tokens / 4) * idxHd;
+    idxBytes = idxElements * idxB;
+
+    perTokenBytes = (kvElements / tokens) * precB + (idxElements / tokens) * idxB;
+
+    // Draft layers
+    let draftKvBytes = 0;
+    let draftLayers = 0;
+    if (includeDraft) {
+      // Draft layers are ratio=0 layers
+      draftLayers = ratio0Layers;
+      draftKvBytes = ratio0Elements * precB;
+    }
+
+    const totalKvBytes = kvBytes + draftKvBytes;
+    const totalBytes = seqs * (totalKvBytes + idxBytes);
+
+    formulaTitle = `${model.label} hybrid sparse attention`;
+    formulas = [
+      { name: 'sliding_kv_bytes', tip: 'Includes ratio=0 layers. Ratio=0 layers only contribute this fixed sliding-window KV and do not add compressed KV slots.', expr: `active_layers × sliding_window × head_dim × precision_bytes` },
+      { name: 'compressed_kv_bytes', tip: 'Compressed KV cache from layers whose compress_ratio is greater than zero; each layer keeps floor(tokens / compress_ratio) compressed slots.', expr: `Σ over ratio>0 layers: floor(tokens / compress_ratio) × head_dim × precision_bytes` },
+      { name: 'kv_bytes', tip: `Main ${model.label} KV cache before adding the separate indexer cache.`, expr: `sliding_kv_bytes + compressed_kv_bytes` },
+      { name: 'indexer_bytes', tip: 'Ratio=4 layers keep an extra compressed indexer cache that can use a separate precision.', expr: `ratio4_layers × floor(tokens / 4) × index_head_dim × indexer_precision_bytes` },
+      { name: 'total_bytes', tip: `Combined ${model.label} cache payload for all concurrent sequences.`, expr: `sequences × (kv_bytes + indexer_bytes)` }
+    ];
+
+    breakdown = [
+      { label: 'Main layers', value: fmtNum(totalLayers) },
+      { label: 'Draft layers included', value: includeDraft ? fmtNum(draftLayers) : '0', tip: 'Extra MTP/draft layers after the main transformer layers. In DeepSeek V4 configs these are ratio=0 layers.' },
+      { label: 'Ratio=4 layers', value: fmtNum(ratio4Layers), tip: 'Layers whose compressed cache ratio is 4; these layers also carry indexer cache.' },
+      { label: 'Ratio=128 layers', value: fmtNum(ratio128Layers), tip: 'Layers whose compressed cache keeps floor(tokens / 128) compressed KV slots.' },
+      { label: 'Ratio=0 layers', value: fmtNum(ratio0Layers), tip: 'Layers with no compressed KV segment; they keep only the sliding-window KV cache.' },
+      { label: 'Ratio=0 KV elements', value: fmtNum(ratio0Elements), tip: 'The ratio=0 contribution: ratio0_layers × sliding_window × head_dim.' },
+      { label: 'Sliding-window elements', value: fmtNum(slidingElements), tip: 'Per-layer local KV reserve: sliding_window × head_dim, summed across active layers.' },
+      { label: 'Compressed elements', value: fmtNum(compressedElements), tip: 'Compressed KV elements from layers with compress_ratio greater than zero.' },
+      { label: 'KV elements', value: fmtNum(kvElements), tip: 'Sliding-window plus compressed attention cache elements before applying KV precision.' },
+      { label: 'Indexer elements', value: fmtNum(idxElements), tip: 'Compressed indexer elements from ratio=4 layers before applying indexer precision.' },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'Indexer precision bytes', value: idxB.toString() },
+    ];
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(totalKvBytes);
+    document.getElementById('idxSize').textContent = fmtBytes(idxBytes);
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+
+  } else if (formula === 'mixed_full_sliding_gqa') {
+    const fullLayers = f.full_attention_layers;
+    const slidingLayers = f.sliding_attention_layers;
+    const totalLayers = f.num_hidden_layers;
+    const kvHeads = f.num_key_value_heads;
+    const hd = f.head_dim;
+    const globalHd = f.global_head_dim || hd;
+    const globalKvHeads = f.num_global_key_value_heads || kvHeads;
+    const sw = f.sliding_window;
+    const storedLayers = f.stored_layers || totalLayers;
+
+    // Full attention layers: standard GQA, full context
+    const fullElements = 2 * fullLayers * globalKvHeads * globalHd * tokens;
+    // Sliding attention layers: sliding window GQA
+    const slidingElements = 2 * slidingLayers * kvHeads * hd * sw;
+
+    const kvElements = fullElements + slidingElements;
+    kvBytes = kvElements * precB;
+    perTokenBytes = (2 * fullLayers * globalKvHeads * globalHd + 2 * slidingLayers * kvHeads * hd * (sw / tokens)) * precB;
+
+    const totalBytes = seqs * kvBytes;
+
+    formulaTitle = `${model.label} mixed full + sliding window attention`;
+    formulas = [
+      { name: 'full_kv_bytes', tip: 'Full attention layers store KV for the entire context length.', expr: `2 × full_attention_layers × global_kv_heads × global_head_dim × tokens × precision_bytes` },
+      { name: 'sliding_kv_bytes', tip: 'Sliding window attention layers only store KV for the local window.', expr: `2 × sliding_attention_layers × kv_heads × head_dim × sliding_window × precision_bytes` },
+      { name: 'kv_bytes', tip: 'Combined KV cache for both attention types.', expr: `full_kv_bytes + sliding_kv_bytes` },
+      { name: 'total_bytes', tip: 'Combined cache payload for all concurrent sequences.', expr: `sequences × kv_bytes` }
+    ];
+
+    breakdown = [
+      { label: 'Full attention layers', value: fmtNum(fullLayers) },
+      { label: 'Sliding attention layers', value: fmtNum(slidingLayers) },
+      { label: 'Global KV heads', value: fmtNum(globalKvHeads) },
+      { label: 'Global head dim', value: fmtNum(globalHd) },
+      { label: 'Sliding KV heads', value: fmtNum(kvHeads) },
+      { label: 'Sliding head dim', value: fmtNum(hd) },
+      { label: 'Sliding window', value: fmtNum(sw) },
+      { label: 'Full KV elements', value: fmtNum(fullElements) },
+      { label: 'Sliding KV elements', value: fmtNum(slidingElements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'Total bytes', value: fmtNum(totalBytes) },
+    ];
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(kvBytes);
+    document.getElementById('idxSize').textContent = '—';
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+
+  } else if (formula === 'qwen_linear_full_hybrid') {
+    const fullLayers = f.full_attention_layers;
+    const linearLayers = f.linear_attention_layers;
+    const totalLayers = f.num_hidden_layers;
+    const kvHeads = f.num_key_value_heads;
+    const hd = f.head_dim;
+    const linKvHeads = f.linear_num_key_heads;
+    const linValHeads = f.linear_num_value_heads;
+    const linKeyHd = f.linear_key_head_dim;
+    const linValHd = f.linear_value_head_dim;
+    const convDim = f.linear_conv_kernel_dim;
+
+    // Full attention: standard GQA
+    const fullElements = 2 * fullLayers * kvHeads * hd * tokens;
+    const fullBytes = fullElements * precB;
+
+    // Linear attention: stores conv_kernel_dim + tokens positions
+    const linKeyElements = linKvHeads * linKeyHd * (convDim + tokens);
+    const linValElements = linValHeads * linValHd * (convDim + tokens);
+    const linElements = linearLayers * (linKeyElements + linValElements);
+    const linBytes = includeLinear ? linElements * precB : 0;
+
+    kvBytes = fullBytes + linBytes;
+    perTokenBytes = (2 * fullLayers * kvHeads * hd + (includeLinear ? linearLayers * (linKvHeads * linKeyHd + linValHeads * linValHd) : 0)) * precB;
+
+    // MTP draft
+    let draftLayers = 0;
+    if (includeDraft && f.mtp_num_hidden_layers) {
+      draftLayers = f.mtp_num_hidden_layers;
+      const draftElements = 2 * draftLayers * kvHeads * hd * tokens;
+      kvBytes += draftElements * precB;
+      perTokenBytes += 2 * draftLayers * kvHeads * hd * precB;
+    }
+
+    const totalBytes = seqs * kvBytes;
+
+    formulaTitle = `${model.label} linear + full attention hybrid`;
+    formulas = [
+      { name: 'full_kv_bytes', tip: 'Full attention layers use standard GQA KV cache for the entire context.', expr: `2 × full_attention_layers × kv_heads × head_dim × tokens × precision_bytes` },
+      { name: 'linear_kv_bytes', tip: 'Linear attention layers store a fixed-size conv kernel plus per-token KV.', expr: `linear_layers × (lin_key_heads × lin_key_hd + lin_val_heads × lin_val_hd) × (conv_kernel_dim + tokens) × precision_bytes` },
+      { name: 'kv_bytes', tip: 'Combined full + linear KV cache.', expr: `full_kv_bytes + linear_kv_bytes` },
+      { name: 'total_bytes', tip: 'Combined cache payload for all concurrent sequences.', expr: `sequences × kv_bytes` }
+    ];
+
+    breakdown = [
+      { label: 'Full attention layers', value: fmtNum(fullLayers) },
+      { label: 'Linear attention layers', value: fmtNum(linearLayers) },
+      { label: 'Full KV heads', value: fmtNum(kvHeads) },
+      { label: 'Full head dim', value: fmtNum(hd) },
+      { label: 'Full KV elements', value: fmtNum(fullElements) },
+      { label: 'Linear key heads', value: fmtNum(linKvHeads) },
+      { label: 'Linear value heads', value: fmtNum(linValHeads) },
+      { label: 'Linear key head dim', value: fmtNum(linKeyHd) },
+      { label: 'Linear value head dim', value: fmtNum(linValHd) },
+      { label: 'Conv kernel dim', value: fmtNum(convDim) },
+      { label: 'Linear KV elements', value: fmtNum(linElements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+    ];
+    if (draftLayers > 0) {
+      breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
+    }
+    breakdown.push({ label: 'Total bytes', value: fmtNum(totalBytes) });
+
+    document.getElementById('totalGiB').textContent = (totalBytes / 1024**3).toFixed(5) + ' GiB';
+    document.getElementById('totalGB').textContent = '= ' + (totalBytes / 1e9).toFixed(5) + ' GB';
+    document.getElementById('kvSize').textContent = fmtBytes(kvBytes);
+    document.getElementById('idxSize').textContent = '—';
+    document.getElementById('perToken').textContent = fmtBytes(perTokenBytes);
+  }
+
+  // ── Render formulas ──
+  const $formulaSection = document.getElementById('formulaSection');
+  const $formulaTitle = document.getElementById('formulaTitle');
+  const $formulaBody = document.getElementById('formulaBody');
+
+  if (formulas.length > 0) {
+    $formulaSection.classList.remove('hidden');
+    $formulaTitle.textContent = formulaTitle;
+    $formulaBody.innerHTML = formulas.map(f =>
+      `<div class="formula-row">
+        <span class="formula-name">${f.name} ${tipIcon(f.tip)}</span>
+        <span class="formula-eq">=</span>
+        <span class="formula-expr">${f.expr}</span>
+      </div>`
+    ).join('');
+  } else {
+    $formulaSection.classList.add('hidden');
+  }
+
+  // ── Render breakdown ──
+  const $grid = document.getElementById('breakdownGrid');
+  $grid.innerHTML = breakdown.map(item => {
+    const tip = item.tip ? ` ${tipIcon(item.tip)}` : '';
+    return `<div class="breakdown-row">
+      <span class="label">${item.label}${tip}</span>
+      <span class="val">${item.value}</span>
+    </div>`;
+  }).join('');
+
+  // ── Note & source ──
+  const noteEl = document.getElementById('noteSection');
+  if (formula === 'deepseek_v4_hybrid') {
+    noteEl.textContent = 'Production estimate uses the official sliding-window/compressed-cache layout. The default DeepSeek V4 setting uses FP8 attention cache and FP4 indexer cache.';
+  } else {
+    noteEl.textContent = 'Curated from official Hugging Face model config/source files and serving-engine references. Values describe KV cache capacity planning, not model weights or activation memory.';
+  }
+
+  const srcLink = document.getElementById('sourceLink');
+  srcLink.href = model.source_url;
+  srcLink.textContent = 'Source: ' + model.source_url;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Event listeners
+// ═══════════════════════════════════════════════════════════════
+$family.addEventListener('change', () => {
+  populateModels($family.value);
+  calculate();
+});
+$model.addEventListener('change', calculate);
+$tokens.addEventListener('input', calculate);
+$seq.addEventListener('input', calculate);
+$prec.addEventListener('change', calculate);
+$idxPrec.addEventListener('change', calculate);
+$draft.addEventListener('change', calculate);
+$linear.addEventListener('change', calculate);
+
+// Initial calc
+calculate();
+</script>
+</body>
+</html>
