@@ -105,8 +105,6 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   height: 52px;
-  margin-left: calc(-50vw + 50%);
-  margin-right: calc(-50vw + 50%);
   margin-bottom: 24px;
   transition: background 0.2s, border-color 0.2s;
 }
