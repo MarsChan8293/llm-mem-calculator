@@ -147,6 +147,7 @@ function calculate() {
       if (expr.indexOf('sequences') !== -1) {
         vals.sequences = seqs;
       }
+      var inputNames = { tokens: 1, sequences: 1, precision_bytes: 1, indexer_precision_bytes: 1 };
       var keys = Object.keys(vals).sort(function (a, b) { return b.length - a.length; });
       if (keys.length > 0) {
         var re = new RegExp('\\b(' + keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'g');
@@ -158,7 +159,15 @@ function calculate() {
           } else {
             tooltipText = val;
           }
-          return '<span class="pill" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
+          var cls = 'pill';
+          if (inputNames[match]) {
+            cls += ' pill-input';
+          } else if (match.indexOf('_bytes') !== -1) {
+            cls += ' pill-result';
+          } else {
+            cls += ' pill-param';
+          }
+          return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
         });
       }
       return '<div class="formula-row">' +

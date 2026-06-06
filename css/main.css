@@ -231,12 +231,22 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   align-items: center;
   padding: 1px 7px;
   border-radius: 10px;
-  background: var(--accent-light);
-  color: var(--accent2);
   font-size: 0.82rem;
   cursor: help;
   position: relative;
   white-space: nowrap;
+}
+.pill-param {
+  background: #edf2ff;
+  color: #3b5bdb;
+}
+.pill-input {
+  background: #fff4e6;
+  color: #d9480f;
+}
+.pill-result {
+  background: #ebfbee;
+  color: #2b8a3e;
 }
 .pill[data-tooltip]:hover::after {
   content: attr(data-tooltip);
