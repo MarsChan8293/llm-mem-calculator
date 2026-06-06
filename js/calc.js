@@ -12,6 +12,25 @@
  */
 
 /**
+ * Mapping from short math symbols to human-readable field names.
+ * Used by calculator.js to build tooltips: "{fullName} = {value}".
+ */
+var SYMBOL_NAMES = {
+  L: 'layers', T: 'tokens', B: 'batch_size', p: 'precision', p_idx: 'indexer precision',
+  h_kv: 'kv_heads', d_h: 'head_dim',
+  d_c: 'kv_lora_rank', d_r: 'qk_rope_head_dim', d_idx: 'index_head_dim',
+  W: 'sliding_window', r: 'compress_ratio',
+  L_4: 'ratio4_layers', L_128: 'ratio128_layers', L_0: 'ratio0_layers',
+  L_f: 'full_attention_layers', L_s: 'sliding_attention_layers', L_l: 'linear_attention_layers',
+  h_f: 'full_kv_heads', h_s: 'sliding_kv_heads',
+  d_f: 'full_head_dim', d_s: 'sliding_head_dim',
+  d_vf: 'full_v_head_dim', d_vs: 'sliding_v_head_dim',
+  h_kl: 'linear_key_heads', h_vl: 'linear_value_heads',
+  d_kl: 'linear_key_head_dim', d_vl: 'linear_value_head_dim',
+  k_c: 'conv_kernel_dim'
+};
+
+/**
  * Format bytes using binary (IEC) prefixes (KiB, MiB, GiB).
  * @param {number} bytes
  * @returns {string}
@@ -85,8 +104,8 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' standard GQA';
     formulas = [
-      { name: 'kv_bytes', tip: 'Main ' + model.label + ' KV cache before applying precision.', expr: '2 \u00d7 layers \u00d7 kv_heads \u00d7 head_dim \u00d7 tokens \u00d7 precision_bytes', values: { layers: layers, kv_heads: kvHeads, head_dim: hd, tokens: tokens, precision_bytes: precB }, resultValue: kvBytes },
-      { name: 'total_bytes', tip: 'Combined ' + model.label + ' cache payload for all concurrent sequences.', expr: 'sequences \u00d7 kv_bytes', values: { kv_bytes: kvBytes }, resultValue: kvBytes }
+      { name: 'KV', tip: 'Main ' + model.label + ' KV cache before applying precision.', expr: '2 \u00d7 L \u00d7 h_kv \u00d7 d_h \u00d7 T \u00d7 p', values: { L: layers, h_kv: kvHeads, d_h: hd, T: tokens, p: precB }, resultValue: kvBytes },
+      { name: 'Total', tip: 'Combined ' + model.label + ' cache payload for all concurrent sequences.', expr: 'B \u00d7 KV', values: { KV: kvBytes }, resultValue: kvBytes }
     ];
 
     breakdown = [
@@ -121,8 +140,8 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' multi-head latent attention (MLA)';
     formulas = [
-      { name: 'kv_bytes', tip: 'Compressed KV cache using MLA projection. Each layer stores (kv_lora_rank + qk_rope_head_dim) elements per token.', expr: 'layers \u00d7 (kv_lora_rank + qk_rope_head_dim) \u00d7 tokens \u00d7 precision_bytes', values: { layers: layers, kv_lora_rank: kvLoraRank, qk_rope_head_dim: qkRopeHd, tokens: tokens, precision_bytes: precB }, resultValue: kvBytes },
-      { name: 'total_bytes', tip: 'Combined cache payload for all concurrent sequences.', expr: 'sequences \u00d7 kv_bytes', values: { kv_bytes: kvBytes }, resultValue: kvBytes }
+      { name: 'KV', tip: 'Compressed KV cache using MLA projection. Each layer stores (kv_lora_rank + qk_rope_head_dim) elements per token.', expr: 'L \u00d7 (d_c + d_r) \u00d7 T \u00d7 p', values: { L: layers, d_c: kvLoraRank, d_r: qkRopeHd, T: tokens, p: precB }, resultValue: kvBytes },
+      { name: 'Total', tip: 'Combined cache payload for all concurrent sequences.', expr: 'B \u00d7 KV', values: { KV: kvBytes }, resultValue: kvBytes }
     ];
 
     breakdown = [
@@ -161,9 +180,9 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' DSA + MLA attention';
     formulas = [
-      { name: 'kv_bytes', tip: 'Compressed KV cache using MLA projection. Each layer stores (kv_lora_rank + qk_rope_head_dim) elements per token.', expr: 'layers \u00d7 (kv_lora_rank + qk_rope_head_dim) \u00d7 tokens \u00d7 precision_bytes', values: { layers: layers, kv_lora_rank: kvLoraRank, qk_rope_head_dim: qkRopeHd, tokens: tokens, precision_bytes: precB }, resultValue: kvBytes },
-      { name: 'indexer_bytes', tip: 'Indexer cache for DSA sparse attention lookup.', expr: 'layers \u00d7 index_head_dim \u00d7 tokens \u00d7 indexer_precision_bytes', values: { layers: layers, index_head_dim: idxHd, tokens: tokens, indexer_precision_bytes: idxB }, resultValue: idxBytes },
-      { name: 'total_bytes', tip: 'Combined cache payload for all concurrent sequences.', expr: 'sequences \u00d7 (kv_bytes + indexer_bytes)', values: { kv_bytes: kvBytes, indexer_bytes: idxBytes }, resultValue: kvBytes + idxBytes }
+      { name: 'KV', tip: 'Compressed KV cache using MLA projection. Each layer stores (kv_lora_rank + qk_rope_head_dim) elements per token.', expr: 'L \u00d7 (d_c + d_r) \u00d7 T \u00d7 p', values: { L: layers, d_c: kvLoraRank, d_r: qkRopeHd, T: tokens, p: precB }, resultValue: kvBytes },
+      { name: 'Idx', tip: 'Indexer cache for DSA sparse attention lookup.', expr: 'L \u00d7 d_idx \u00d7 T \u00d7 p_idx', values: { L: layers, d_idx: idxHd, T: tokens, p_idx: idxB }, resultValue: idxBytes },
+      { name: 'Total', tip: 'Combined cache payload for all concurrent sequences.', expr: 'B \u00d7 (KV + Idx)', values: { KV: kvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes }
     ];
 
     breakdown = [
@@ -227,11 +246,11 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' hybrid sparse attention';
     formulas = [
-      { name: 'sliding_kv_bytes', tip: 'ALL layers contribute to the sliding window KV, including ratio=0 layers.', expr: 'total_layers \u00d7 sliding_window \u00d7 head_dim \u00d7 precision_bytes', values: { total_layers: totalLayers, sliding_window: sw, head_dim: hd, precision_bytes: precB }, resultValue: slidingElements * precB },
-      { name: 'compressed_kv_bytes', tip: 'Compressed KV cache from layers whose compress_ratio is greater than zero; each layer keeps floor(tokens / compress_ratio) compressed slots.', expr: '\u03a3 over ratio>0 layers: floor(tokens / compress_ratio) \u00d7 head_dim \u00d7 precision_bytes', values: { tokens: tokens, head_dim: hd, precision_bytes: precB }, resultValue: compressedElements * precB },
-      { name: 'kv_bytes', tip: 'Main ' + model.label + ' KV cache before adding the separate indexer cache.', expr: 'sliding_kv_bytes + compressed_kv_bytes', values: { sliding_kv_bytes: kvBytes, compressed_kv_bytes: compressedElements * precB }, resultValue: kvBytes },
-      { name: 'indexer_bytes', tip: 'Ratio=4 layers keep an extra compressed indexer cache that can use a separate precision.', expr: 'ratio4_layers \u00d7 floor(tokens / 4) \u00d7 index_head_dim \u00d7 indexer_precision_bytes', values: { ratio4_layers: ratio4Layers, tokens: tokens, index_head_dim: idxHd, indexer_precision_bytes: idxB }, resultValue: idxBytes },
-      { name: 'total_bytes', tip: 'Combined ' + model.label + ' cache payload for all concurrent sequences.', expr: 'sequences \u00d7 (kv_bytes + indexer_bytes)', values: { kv_bytes: totalKvBytes, indexer_bytes: idxBytes }, resultValue: totalKvBytes + idxBytes }
+      { name: 'KV_sw', tip: 'ALL layers contribute to the sliding window KV, including ratio=0 layers.', expr: 'L \u00d7 W \u00d7 d_h \u00d7 p', values: { L: totalLayers, W: sw, d_h: hd, p: precB }, resultValue: slidingElements * precB },
+      { name: 'KV_cmp', tip: 'Compressed KV cache from layers whose compress_ratio is greater than zero; each layer keeps floor(tokens / compress_ratio) compressed slots.', expr: '\u03a3(r\u003e0) \u230aT/r\u230b \u00d7 d_h \u00d7 p', values: { T: tokens, d_h: hd, p: precB }, resultValue: compressedElements * precB },
+      { name: 'KV', tip: 'Main ' + model.label + ' KV cache before adding the separate indexer cache.', expr: 'KV_sw + KV_cmp', values: { KV_sw: kvBytes, KV_cmp: compressedElements * precB }, resultValue: kvBytes },
+      { name: 'Idx', tip: 'Ratio=4 layers keep an extra compressed indexer cache that can use a separate precision.', expr: 'L_4 \u00d7 \u230aT/4\u230b \u00d7 d_idx \u00d7 p_idx', values: { L_4: ratio4Layers, T: tokens, d_idx: idxHd, p_idx: idxB }, resultValue: idxBytes },
+      { name: 'Total', tip: 'Combined ' + model.label + ' cache payload for all concurrent sequences.', expr: 'B \u00d7 (KV + Idx)', values: { KV: totalKvBytes, Idx: idxBytes }, resultValue: totalKvBytes + idxBytes }
     ];
 
     breakdown = [
@@ -281,10 +300,10 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' mixed full + sliding window attention';
     formulas = [
-      { name: 'full_kv_bytes', tip: 'Full attention layers store KV for the entire context length.', expr: 'full_layers \u00d7 full_kv_heads \u00d7 (full_head_dim + full_v_head_dim) \u00d7 tokens \u00d7 precision_bytes', values: { full_layers: fullLayers, full_kv_heads: globalKvHeads, full_head_dim: globalHd, full_v_head_dim: fullVHd, tokens: tokens, precision_bytes: precB }, resultValue: fullBytes },
-      { name: 'sliding_kv_bytes', tip: 'Sliding window attention layers only store KV for the local window.', expr: 'sliding_layers \u00d7 sliding_kv_heads \u00d7 (sliding_head_dim + sliding_v_head_dim) \u00d7 min(tokens, sliding_window) \u00d7 precision_bytes', values: { sliding_layers: slidingLayers, sliding_kv_heads: slidingKvHeads, sliding_head_dim: slidingHd, sliding_v_head_dim: slidingVHd, tokens: tokens, sliding_window: sw, precision_bytes: precB }, resultValue: slidingElements * precB },
-      { name: 'kv_bytes', tip: 'Combined KV cache for both attention types.', expr: 'full_kv_bytes + sliding_kv_bytes', values: { full_kv_bytes: fullBytes, sliding_kv_bytes: slidingElements * precB }, resultValue: kvBytes },
-      { name: 'total_bytes', tip: 'Combined cache payload for all concurrent sequences.', expr: 'sequences \u00d7 kv_bytes', values: { kv_bytes: kvBytes }, resultValue: kvBytes }
+      { name: 'KV_f', tip: 'Full attention layers store KV for the entire context length.', expr: 'L_f \u00d7 h_f \u00d7 (d_f + d_vf) \u00d7 T \u00d7 p', values: { L_f: fullLayers, h_f: globalKvHeads, d_f: globalHd, d_vf: fullVHd, T: tokens, p: precB }, resultValue: fullBytes },
+      { name: 'KV_s', tip: 'Sliding window attention layers only store KV for the local window.', expr: 'L_s \u00d7 h_s \u00d7 (d_s + d_vs) \u00d7 min(T, W) \u00d7 p', values: { L_s: slidingLayers, h_s: slidingKvHeads, d_s: slidingHd, d_vs: slidingVHd, T: tokens, W: sw, p: precB }, resultValue: slidingElements * precB },
+      { name: 'KV', tip: 'Combined KV cache for both attention types.', expr: 'KV_f + KV_s', values: { KV_f: fullBytes, KV_s: slidingElements * precB }, resultValue: kvBytes },
+      { name: 'Total', tip: 'Combined cache payload for all concurrent sequences.', expr: 'B \u00d7 KV', values: { KV: kvBytes }, resultValue: kvBytes }
     ];
 
     breakdown = [
@@ -336,10 +355,10 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
     formulaTitle = model.label + ' linear + full attention hybrid';
     formulas = [
-      { name: 'full_kv_bytes', tip: 'Full attention layers use standard GQA KV cache for the entire context.', expr: '2 \u00d7 full_attention_layers \u00d7 kv_heads \u00d7 head_dim \u00d7 tokens \u00d7 precision_bytes', values: { full_attention_layers: fullLayers, kv_heads: kvHeads, head_dim: hd, tokens: tokens, precision_bytes: precB }, resultValue: fullBytes },
-      { name: 'linear_conv_state_bytes', tip: 'Linear attention conv kernel state, fixed per sequence in BF16.', expr: 'sequences \u00d7 linear_layers \u00d7 conv_kernel_dim \u00d7 (2 \u00d7 lin_key_heads \u00d7 lin_key_dim + lin_val_heads \u00d7 lin_val_dim) \u00d7 2', values: { linear_layers: linearLayers, conv_kernel_dim: convDim, lin_key_heads: linKvHeads, lin_key_dim: linKeyHd, lin_val_heads: linValHeads, lin_val_dim: linValHd }, resultValue: linConvBytes },
-      { name: 'linear_recurrent_state_bytes', tip: 'Linear attention recurrent state, fixed per sequence in FP32.', expr: 'sequences \u00d7 linear_layers \u00d7 lin_val_heads \u00d7 lin_key_dim \u00d7 lin_val_dim \u00d7 4', values: { linear_layers: linearLayers, lin_val_heads: linValHeads, lin_key_dim: linKeyHd, lin_val_dim: linValHd }, resultValue: linRecurrentBytes },
-      { name: 'total_bytes', tip: 'Combined full + linear KV cache.', expr: 'full_kv_bytes + linear_conv_state_bytes + linear_recurrent_state_bytes', values: { full_kv_bytes: fullBytes, linear_conv_state_bytes: linConvBytes, linear_recurrent_state_bytes: linRecurrentBytes }, resultValue: kvBytes }
+      { name: 'KV_f', tip: 'Full attention layers use standard GQA KV cache for the entire context.', expr: '2 \u00d7 L_f \u00d7 h_kv \u00d7 d_h \u00d7 T \u00d7 p', values: { L_f: fullLayers, h_kv: kvHeads, d_h: hd, T: tokens, p: precB }, resultValue: fullBytes },
+      { name: 'S_conv', tip: 'Linear attention conv kernel state, fixed per sequence in BF16.', expr: 'B \u00d7 L_l \u00d7 k_c \u00d7 (2 \u00d7 h_kl \u00d7 d_kl + h_vl \u00d7 d_vl) \u00d7 2', values: { L_l: linearLayers, k_c: convDim, h_kl: linKvHeads, d_kl: linKeyHd, h_vl: linValHeads, d_vl: linValHd }, resultValue: linConvBytes },
+      { name: 'S_rec', tip: 'Linear attention recurrent state, fixed per sequence in FP32.', expr: 'B \u00d7 L_l \u00d7 h_vl \u00d7 d_kl \u00d7 d_vl \u00d7 4', values: { L_l: linearLayers, h_vl: linValHeads, d_kl: linKeyHd, d_vl: linValHd }, resultValue: linRecurrentBytes },
+      { name: 'Total', tip: 'Combined full + linear KV cache.', expr: 'KV_f + S_conv + S_rec', values: { KV_f: fullBytes, S_conv: linConvBytes, S_rec: linRecurrentBytes }, resultValue: kvBytes }
     ];
 
     breakdown = [

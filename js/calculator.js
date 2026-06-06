@@ -300,6 +300,10 @@ function formatMetric(bytes) {
   return (bytes / Math.pow(1024, 3)).toFixed(3) + ' GiB';
 }
 
+function formatSymbol(text) {
+  return text.replace(/^([A-Za-z]+)_(.+)$/, '$1<sub>$2</sub>');
+}
+
 function calculate() {
   var model = getModel();
   if (!model) {
@@ -366,10 +370,11 @@ function calculate() {
     $formulaBody.innerHTML = result.formulas.map(function (f) {
       var expr = f.expr;
       var vals = Object.assign({}, f.values);
-      if (expr.indexOf('sequences') !== -1) {
-        vals.sequences = seqs;
+      if (expr.indexOf('B') !== -1) {
+        vals.B = seqs;
       }
-      var inputNames = { tokens: 1, sequences: 1, precision_bytes: 1, indexer_precision_bytes: 1 };
+      var inputNames = { T: 1, B: 1, p: 1, p_idx: 1 };
+      var resultNames = { KV: 1, Total: 1, Idx: 1, KV_sw: 1, KV_cmp: 1, KV_f: 1, KV_s: 1, S_conv: 1, S_rec: 1 };
       var keys = Object.keys(vals).sort(function (a, b) { return b.length - a.length; });
       if (keys.length > 0) {
         var re = new RegExp('\\b(' + keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'g');
@@ -377,30 +382,38 @@ function calculate() {
           var val = vals[match];
           var tooltipText;
           if (typeof val === 'number') {
-            tooltipText = match.indexOf('_bytes') !== -1 ? fmtBytes(val) : fmtNum(val);
+            var formatted;
+            if (resultNames[match]) {
+              formatted = fmtBytes(val);
+            } else if (match === 'p' || match === 'p_idx') {
+              formatted = val + ' B';
+            } else {
+              formatted = fmtNum(val);
+            }
+            tooltipText = (SYMBOL_NAMES[match] || match) + ' = ' + formatted;
           } else {
             tooltipText = val;
           }
           var cls = 'pill';
           if (inputNames[match]) {
             cls += ' pill-input';
-          } else if (match.indexOf('_bytes') !== -1) {
+          } else if (resultNames[match]) {
             cls += ' pill-result';
           } else {
             cls += ' pill-param';
           }
-          return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + match + '</span>';
+          return '<span class="' + cls + '" data-tooltip="' + tooltipText.replace(/"/g, '&quot;') + '">' + formatSymbol(match) + '</span>';
         });
       }
       var nameVal = f.resultValue !== undefined ? f.resultValue : vals[f.name];
       var nameTooltip = '';
       if (nameVal !== undefined) {
-        nameTooltip = typeof nameVal === 'number' ? (f.name.indexOf('_bytes') !== -1 ? fmtBytes(nameVal) : fmtNum(nameVal)) : String(nameVal);
+        nameTooltip = typeof nameVal === 'number' ? (resultNames[f.name] ? fmtBytes(nameVal) : fmtNum(nameVal)) : String(nameVal);
       }
       if (f.tip) {
         nameTooltip = nameTooltip ? nameTooltip + '\n' + f.tip : f.tip;
       }
-      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + f.name + '</span>';
+      var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + formatSymbol(f.name) + '</span>';
       return '<div class="formula-row">' +
         '<div class="formula-lhs">' +
           namePill +
@@ -434,3 +447,81 @@ function calculate() {
 buildPicker('');
 renderTag();
 onModelChange();
+
+(function () {
+  var $overlay = document.getElementById('cheatsheetOverlay');
+  var $btn = document.getElementById('cheatsheetBtn');
+  var $close = document.getElementById('cheatsheetClose');
+  var $body = document.getElementById('cheatsheetBody');
+
+  var SECTIONS = [
+    { title: 'General', items: [
+      ['L', 'layers'], ['T', 'tokens'], ['B', 'batch_size'], ['p', 'precision'], ['p_idx', 'indexer precision']
+    ]},
+    { title: 'GQA', items: [
+      ['h_kv', 'kv_heads'], ['d_h', 'head_dim']
+    ]},
+    { title: 'MLA / DSA', items: [
+      ['d_c', 'kv_lora_rank'], ['d_r', 'qk_rope_head_dim'], ['d_idx', 'index_head_dim']
+    ]},
+    { title: 'DeepSeek V4 Hybrid', items: [
+      ['W', 'sliding_window'], ['r', 'compress_ratio'],
+      ['L_0', 'ratio0_layers'], ['L_4', 'ratio4_layers'], ['L_128', 'ratio128_layers']
+    ]},
+    { title: 'Mixed Full + Sliding', items: [
+      ['L_f', 'full_attention_layers'], ['L_s', 'sliding_attention_layers'],
+      ['h_f', 'full_kv_heads'], ['h_s', 'sliding_kv_heads'],
+      ['d_f', 'full_head_dim'], ['d_s', 'sliding_head_dim'],
+      ['d_vf', 'full_v_head_dim'], ['d_vs', 'sliding_v_head_dim']
+    ]},
+    { title: 'Linear Attention', items: [
+      ['L_l', 'linear_attention_layers'],
+      ['h_kl', 'linear_key_heads'], ['h_vl', 'linear_value_heads'],
+      ['d_kl', 'linear_key_head_dim'], ['d_vl', 'linear_value_head_dim'],
+      ['k_c', 'conv_kernel_dim']
+    ]},
+    { title: 'Results', items: [
+      ['KV', 'kv_bytes'], ['Idx', 'indexer_bytes'],
+      ['KV_sw', 'sliding_kv_bytes'], ['KV_cmp', 'compressed_kv_bytes'],
+      ['KV_f', 'full_kv_bytes'], ['KV_s', 'sliding_kv_bytes'],
+      ['S_conv', 'linear_conv_state_bytes'], ['S_rec', 'linear_recurrent_state_bytes'],
+      ['Total', 'total_bytes']
+    ]}
+  ];
+
+  function formatSymbol(text) {
+    return text.replace(/^([A-Za-z]+)_(.+)$/, '$1<sub>$2</sub>');
+  }
+
+  function buildCheatsheet() {
+    var allItems = [];
+    SECTIONS.forEach(function (sec) {
+      allItems.push('<div class="cheatsheet-section-title">' + sec.title + '</div>');
+      sec.items.forEach(function (item) {
+        allItems.push('<div class="cheatsheet-sym">' + formatSymbol(item[0]) + '</div>');
+        allItems.push('<div class="cheatsheet-name">' + item[1] + '</div>');
+      });
+    });
+    $body.innerHTML = '<div class="cheatsheet-grid">' + allItems.join('') + '</div>';
+  }
+
+  function open() { $overlay.classList.add('open'); }
+  function close() { $overlay.classList.remove('open'); }
+
+  $btn.addEventListener('click', open);
+  $close.addEventListener('click', close);
+  $overlay.addEventListener('click', function (e) {
+    if (e.target === $overlay) close();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      var tag = document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      $overlay.classList.contains('open') ? close() : open();
+    }
+    if (e.key === 'Escape') close();
+  });
+
+  buildCheatsheet();
+})();
