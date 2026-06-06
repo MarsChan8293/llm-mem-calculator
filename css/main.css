@@ -540,10 +540,7 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   gap: 4px;
   flex-wrap: wrap;
   color: var(--text2);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-.formula-rhs::-webkit-scrollbar { display: none; }
 .formula-eq { color: var(--text3); flex-shrink: 0; }
 .formula-expr { color: var(--text2); }
 .formula-expr .hl { color: var(--orange-dark); font-weight: 500; }
