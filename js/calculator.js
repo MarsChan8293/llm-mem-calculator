@@ -462,7 +462,7 @@ function calculate() {
         ibarHtml = '<div class="ibar">';
         f.bar.forEach(function (seg) {
           var w = globalMaxBarBytes > 0 ? Math.max(1, (seg.bytes / globalMaxBarBytes) * 120) : 1;
-          ibarHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px"></div>';
+          ibarHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px" data-tooltip="' + getLegendLabel(seg.type) + ': ' + formatMetric(seg.bytes) + '"></div>';
         });
         ibarHtml += '</div>';
         ibarHtml += '<div class="ibar-val">' + (f.ibarVal || '') + '</div>';
@@ -488,7 +488,7 @@ function calculate() {
         p.segs.forEach(function (seg) {
           var segBytes = p.bytes * seg.ratio;
           var w = maxPatternBytes > 0 ? Math.max(2, (segBytes / maxPatternBytes) * 120) : 2;
-          patternHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px"></div>';
+          patternHtml += '<div class="seg ' + getBarColorClass(seg.type) + '" style="width:' + w + 'px" data-tooltip="' + getLegendLabel(seg.type) + ': ' + formatMetric(segBytes) + '"></div>';
         });
         patternHtml += '</div>';
         patternHtml += '<span class="pattern-count">\u00d7' + p.count + '</span>';
