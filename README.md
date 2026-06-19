@@ -22,7 +22,7 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 |---|---|
 | Standard GQA | Qwen3, Llama 3.x, Qwen2.5, MiniMax M2.x |
 | MLA (Multi-head Latent Attention) | DeepSeek V3, DeepSeek R1, Kimi K2.5/K2.6 |
-| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1 |
+| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1/5.2 |
 | Mixed Full + Sliding Window | Gemma 4, Cohere Command, MiMo-V2.5 |
 | Linear + Full Hybrid | Qwen3.5, Qwen3.6 |
 
