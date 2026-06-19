@@ -364,6 +364,10 @@ function renderChart() {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
         title: {
           display: true,
@@ -385,12 +389,15 @@ function renderChart() {
           }
         },
         tooltip: {
+          usePointStyle: true,
+          itemSort: function (a, b) { return b.parsed.y - a.parsed.y; },
           callbacks: {
             title: function (items) {
-              return items[0].dataset.label;
+              if (!items.length) return '';
+              return formatXTick(items[0].parsed.x) + ' tokens';
             },
             label: function (ctx) {
-              return formatXTick(ctx.parsed.x) + ' tokens \u2192 ' + ctx.parsed.y.toFixed(2) + ' GB';
+              return ctx.dataset.label + ':  ' + ctx.parsed.y.toFixed(2) + ' GB';
             }
           }
         }
