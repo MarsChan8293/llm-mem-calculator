@@ -95,7 +95,8 @@ function calcDeployUnified(model, opts) {
     includeLinear: opts.includeLinear,
   });
   var kvPerLayerSingle = L > 0 ? kvResult.kvBytes / L : 0;
-  var idxPerLayerSingle = L > 0 ? kvResult.idxBytes / L : 0;
+  var idxPerLayerSingle = (kvResult.idxLayers || L) > 0 ? kvResult.idxBytes / (kvResult.idxLayers || L) : 0;
+  var idxL = kvResult.idxLayers || L;
 
   var layersPerStage = Math.ceil(L / pp);
   var stages = [];
@@ -125,7 +126,7 @@ function calcDeployUnified(model, opts) {
     var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU;
 
     var sKvPerGPU = stageLayerCount * kvPerLayerSingle * opts.batch / (tp * cp);
-    var sIdxPerGPU = stageLayerCount * idxPerLayerSingle * opts.batch / (idxTp * cp);
+    var sIdxPerGPU = (stageLayerCount / L) * kvResult.idxBytes * opts.batch / (idxTp * cp);
 
     var sTotalPerGPU = sWeightPerGPU + sKvPerGPU + sIdxPerGPU;
 
@@ -237,7 +238,8 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   var perExpertParams = nRouted > 0 && moeLayerCount > 0 ? weightResult.ffnExpertParams / (nRouted * moeLayerCount) : 0;
 
   var kvPerLayerSingle = L > 0 ? kvResult.kvBytes / L : 0;
-  var idxPerLayerSingle = L > 0 ? kvResult.idxBytes / L : 0;
+  var idxPerLayerSingle = (kvResult.idxLayers || L) > 0 ? kvResult.idxBytes / (kvResult.idxLayers || L) : 0;
+  var idxL = kvResult.idxLayers || L;
 
   var formulas = [];
 
@@ -309,14 +311,18 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   });
 
   if (idxPerLayerSingle > 0) {
+    var idxExpr = idxL !== L ? 'Idx\u00d7L_idx\u00d7B/tp_idx' : 'Idx\u00d7L\u00d7B/tp_idx';
+    var idxValues = idxL !== L
+      ? { Idx: fmtWBytes(idxPerLayerSingle), L_idx: idxL, B: batch, tp_idx: idxTp }
+      : { Idx: fmtWBytes(idxPerLayerSingle), L: L, B: batch, tp_idx: idxTp };
     formulas.push({
       name: 'Idx/tp_idx',
-      tip: 'Indexer KV cache per layer, split by Indexer TP, times batch.',
-      expr: 'Idx\u00d7L\u00d7B/tp_idx',
-      values: { Idx: fmtWBytes(idxPerLayerSingle), L: L, B: batch, tp_idx: idxTp },
-      resultValue: idxPerLayerSingle * L * batch / idxTp,
-      bar: [{ type: 'idx', bytes: idxPerLayerSingle * L * batch / idxTp }],
-      ibarVal: fmtWBytes(idxPerLayerSingle * L * batch / idxTp),
+      tip: idxL !== L ? 'Indexer KV cache per indexer layer, split by Indexer TP. With IndexShare, only ' + idxL + ' of ' + L + ' layers have indexer.' : 'Indexer KV cache per layer, split by Indexer TP, times batch.',
+      expr: idxExpr,
+      values: idxValues,
+      resultValue: idxPerLayerSingle * idxL * batch / idxTp,
+      bar: [{ type: 'idx', bytes: idxPerLayerSingle * idxL * batch / idxTp }],
+      ibarVal: fmtWBytes(idxPerLayerSingle * idxL * batch / idxTp),
     });
   }
 

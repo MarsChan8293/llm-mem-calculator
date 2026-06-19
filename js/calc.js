@@ -87,6 +87,7 @@ function calcKvCache(model, tokens, precB, idxB, options) {
   let formulas = [];
   let formulaTitle = '';
   var patterns = [];
+  var idxLayers = 0;
   var legendTypes = [];
 
   // ── standard_gqa ──
@@ -192,9 +193,18 @@ function calcKvCache(model, tokens, precB, idxB, options) {
     perTokenBytes = layers * (kvLoraRank + qkRopeHd) * precB;
 
     const idxHd = f.index_head_dim;
-    const idxElements = layers * idxHd * tokens;
+    // IndexShare: every `index_topk_freq` layers share one indexer.
+    // Only "full" indexer layers store indexer key cache; "shared" layers reuse topk indices.
+    var numIndexerLayers = layers;
+    var indexShareFreq = f.index_topk_freq || 0;
+    if (indexShareFreq > 0) {
+      var indexShareOffset = f.index_skip_topk_offset || 0;
+      numIndexerLayers = indexShareOffset + Math.floor((layers - indexShareOffset) / indexShareFreq);
+    }
+    const idxElements = numIndexerLayers * idxHd * tokens;
     idxBytes = idxElements * idxB;
-    perTokenBytes += layers * idxHd * idxB;
+    perTokenBytes += numIndexerLayers * idxHd * idxB;
+    idxLayers = numIndexerLayers;
 
     let draftLayers = 0;
     if (includeDraft && f.num_nextn_predict_layers) {
@@ -215,18 +225,39 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       : [{ type: 'compressed', bytes: kvBytes }, { type: 'indexer', bytes: idxBytes }];
     formulas = [
       { name: 'KV', tip: 'Compressed KV cache using MLA projection. Each layer stores (kv_lora_rank + qk_rope_head_dim) elements per token.', expr: 'L \u00d7 (d_c + d_r) \u00d7 T \u00d7 p', values: { L: layers, d_c: kvLoraRank, d_r: qkRopeHd, T: tokens, p: precB }, resultValue: kvBytes, bar: dsaKvBar, ibarVal: fmtBytes(kvBytes) },
-      { name: 'Idx', tip: 'Indexer cache for DSA sparse attention lookup.', expr: 'L \u00d7 d_idx \u00d7 T \u00d7 p_idx', values: { L: layers, d_idx: idxHd, T: tokens, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
+      { name: 'Idx', tip: indexShareFreq > 0 ? 'Indexer cache for DSA sparse attention lookup. With IndexShare, only ' + numIndexerLayers + ' of ' + layers + ' layers store indexer keys (every ' + indexShareFreq + ' layers share one).' : 'Indexer cache for DSA sparse attention lookup.', expr: indexShareFreq > 0 ? 'L_idx \u00d7 d_idx \u00d7 T \u00d7 p_idx' : 'L \u00d7 d_idx \u00d7 T \u00d7 p_idx', values: indexShareFreq > 0 ? { L_idx: numIndexerLayers, d_idx: idxHd, T: tokens, p_idx: idxB } : { L: layers, d_idx: idxHd, T: tokens, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
       { name: 'Total', tip: 'Combined cache payload for all concurrent sequences.', expr: 'B \u00d7 (KV + Idx)', values: { KV: kvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: dsaTotalBar, ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) }
     ];
-    var dsaDenom = kvLoraRank + qkRopeHd + idxHd;
-    patterns = [{
-      segs: qkRopeHd > 0
-        ? [{ type: 'compressed', ratio: kvLoraRank / dsaDenom }, { type: 'rope', ratio: qkRopeHd / dsaDenom }, { type: 'indexer', ratio: idxHd / dsaDenom }]
-        : [{ type: 'compressed', ratio: kvLoraRank / dsaDenom }, { type: 'indexer', ratio: idxHd / dsaDenom }],
-      count: layers,
-      label: 'all layers',
-      bytes: (kvBytes + idxBytes) / layers
-    }];
+    if (indexShareFreq > 0) {
+      var fullDenom = kvLoraRank + qkRopeHd + idxHd;
+      var sharedDenom = kvLoraRank + qkRopeHd;
+      patterns = [
+        { segs: qkRopeHd > 0
+            ? [{ type: 'compressed', ratio: kvLoraRank / fullDenom }, { type: 'rope', ratio: qkRopeHd / fullDenom }, { type: 'indexer', ratio: idxHd / fullDenom }]
+            : [{ type: 'compressed', ratio: kvLoraRank / fullDenom }, { type: 'indexer', ratio: idxHd / fullDenom }],
+          count: numIndexerLayers,
+          label: 'indexer layers',
+          bytes: ((kvLoraRank + qkRopeHd) * precB + idxHd * idxB) * tokens
+        },
+        { segs: qkRopeHd > 0
+            ? [{ type: 'compressed', ratio: kvLoraRank / sharedDenom }, { type: 'rope', ratio: qkRopeHd / sharedDenom }]
+            : [{ type: 'compressed', ratio: 1 }],
+          count: layers - numIndexerLayers,
+          label: 'shared layers (no indexer)',
+          bytes: (kvLoraRank + qkRopeHd) * precB * tokens
+        }
+      ];
+    } else {
+      var dsaDenom = kvLoraRank + qkRopeHd + idxHd;
+      patterns = [{
+        segs: qkRopeHd > 0
+          ? [{ type: 'compressed', ratio: kvLoraRank / dsaDenom }, { type: 'rope', ratio: qkRopeHd / dsaDenom }, { type: 'indexer', ratio: idxHd / dsaDenom }]
+          : [{ type: 'compressed', ratio: kvLoraRank / dsaDenom }, { type: 'indexer', ratio: idxHd / dsaDenom }],
+        count: layers,
+        label: 'all layers',
+        bytes: (kvBytes + idxBytes) / layers
+      }];
+    }
     legendTypes = qkRopeHd > 0 ? ['compressed', 'rope', 'indexer'] : ['compressed', 'indexer'];
 
     breakdown = [
@@ -236,9 +267,12 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { label: 'KV elements', value: fmtNum(elements) },
       { label: 'KV precision bytes', value: precB.toString() },
       { label: 'Indexer head dim', value: fmtNum(idxHd) },
-      { label: 'Indexer elements', value: fmtNum(idxElements) },
-      { label: 'Indexer precision bytes', value: idxB.toString() },
     ];
+    if (indexShareFreq > 0) {
+      breakdown.push({ label: 'Indexer layers (IndexShare)', value: fmtNum(numIndexerLayers), tip: 'Only ' + numIndexerLayers + ' of ' + layers + ' layers store indexer keys. Every ' + indexShareFreq + ' layers share one indexer.' });
+    }
+    breakdown.push({ label: 'Indexer elements', value: fmtNum(idxElements) });
+    breakdown.push({ label: 'Indexer precision bytes', value: idxB.toString() });
     if (draftLayers > 0) {
       breakdown.push({ label: 'Draft layers included', value: fmtNum(draftLayers), tip: 'Extra MTP/draft layers after the main transformer layers.' });
     }
@@ -592,6 +626,7 @@ function calcKvCache(model, tokens, precB, idxB, options) {
   return {
     kvBytes: kvBytes,
     idxBytes: idxBytes,
+    idxLayers: idxLayers,
     perTokenBytes: perTokenBytes,
     breakdown: breakdown,
     formulas: formulas,
