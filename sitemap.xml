@@ -8,4 +8,8 @@
     <loc>https://elinx.github.io/llm-mem-calculator/compare.html</loc>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://elinx.github.io/llm-mem-calculator/moe.html</loc>
+    <priority>0.8</priority>
+  </url>
 </urlset>

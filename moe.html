@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoE Communication Visualizer — LLM Memory Calculator</title>
+<meta name="description" content="Interactive visualization of Mixture-of-Experts all-to-all communication: routing, dispatch, send, expert compute, and combine across GPUs. Highlights load imbalance.">
+<link rel="canonical" href="https://elinx.github.io/llm-mem-calculator/moe.html">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="MoE Communication Visualizer">
+<meta property="og:description" content="Interactive visualization of MoE all-to-all communication and load imbalance across GPUs.">
+<meta property="og:url" content="https://elinx.github.io/llm-mem-calculator/moe.html">
+<meta property="og:image" content="https://elinx.github.io/llm-mem-calculator/assets/calculator.png">
+<meta property="og:site_name" content="LLM Memory Calculator">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MoE Communication Visualizer">
+<meta name="twitter:description" content="Interactive visualization of MoE all-to-all communication and load imbalance across GPUs.">
+<meta name="twitter:image" content="https://elinx.github.io/llm-mem-calculator/assets/calculator.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="css/main.css">
+<link rel="stylesheet" href="css/moe.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <span class="nav-brand"><span class="nav-brand-dot"></span> LLM Memory Calculator</span>
+    <div class="nav-tabs">
+      <a href="index.html" class="nav-tab">KV Cache</a>
+      <a href="weights.html" class="nav-tab">Weights</a>
+      <a href="deploy.html" class="nav-tab">Deploy</a>
+      <a href="compare.html" class="nav-tab">KV Compare</a>
+      <a href="moe.html" class="nav-tab active">MoE</a>
+    </div>
+    <a class="github-link" href="https://github.com/elinx/llm-mem-calculator" target="_blank" rel="noopener" aria-label="View on GitHub">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+  </div>
+</nav>
+<div class="shell">
+  <div class="moe-grid">
+
+    <!-- ═══ LEFT: Control panel ═══ -->
+    <div class="form-card">
+      <div class="moe-panel-title">MoE All-to-All</div>
+      <div class="moe-panel-sub">Visualize token routing, dispatch, send, expert compute, and combine across GPUs. Imbalance is the enemy.</div>
+
+      <div class="field">
+        <label>GPU count</label>
+        <div class="seg-control" id="gpuSeg">
+          <button class="seg-option" data-value="2">2</button>
+          <button class="seg-option active" data-value="4">4</button>
+          <button class="seg-option" data-value="8">8</button>
+          <button class="seg-option" data-value="16">16</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Experts per GPU</label>
+        <div class="seg-control" id="expSeg">
+          <button class="seg-option" data-value="1">1</button>
+          <button class="seg-option active" data-value="2">2</button>
+          <button class="seg-option" data-value="4">4</button>
+          <button class="seg-option" data-value="8">8</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Token count</label>
+<div class="preset-row" id="tokPresets">
+<button class="preset-btn" data-value="4">4</button>
+<button class="preset-btn active" data-value="8">8</button>
+<button class="preset-btn" data-value="16">16</button>
+<button class="preset-btn" data-value="32">32</button>
+        </div>
+        <input class="text-input" type="number" id="tokInput" value="8" min="1" step="1" style="margin-top:4px">
+      </div>
+
+      <div class="field">
+        <label>Top-k experts</label>
+        <div class="seg-control" id="topkSeg">
+          <button class="seg-option active" data-value="2">2</button>
+          <button class="seg-option" data-value="3">3</button>
+          <button class="seg-option" data-value="4">4</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Skew <span class="field-hint">expert popularity concentration</span></label>
+        <div class="skew-readout">
+          <span>balanced</span>
+          <span class="skew-val" id="skewVal">0.30</span>
+          <span>hot</span>
+        </div>
+        <input type="range" class="moe-slider" id="skewSlider" min="0" max="1" step="0.05" value="0.3">
+        <div class="scenario-row" id="scenarioRow">
+          <button class="scenario-btn" data-value="0.05">Balanced</button>
+          <button class="scenario-btn active" data-value="0.3">Mild</button>
+          <button class="scenario-btn" data-value="0.7">Hot Expert</button>
+          <button class="scenario-btn" data-value="0.9">Hot GPU</button>
+        </div>
+      </div>
+
+      <div class="field-sep"></div>
+
+      <div class="field">
+        <label>Comm &amp; compute params</label>
+        <div class="moe-mini-grid">
+          <div>
+            <span class="field-hint" style="display:block;margin-bottom:3px">Token size (KB)</span>
+            <input class="text-input" type="number" id="tokSize" value="8" min="0.1" step="0.5">
+          </div>
+          <div>
+            <span class="field-hint" style="display:block;margin-bottom:3px">Bandwidth (GB/s)</span>
+            <input class="text-input" type="number" id="bandwidth" value="300" min="1" step="10">
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <span class="field-hint" style="display:block;margin-bottom:3px">Expert speed (K tok/s)</span>
+          <input class="text-input" type="number" id="expSpeed" value="100" min="1" step="10">
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:14px">Skew models expert popularity skew. High skew &rarr; a few hot experts receive most tokens, creating GPU-level receive imbalance that dominates all-to-all latency.</div>
+    </div>
+
+    <!-- ═══ MAIN: Visualization + Metrics ═══ -->
+    <div class="moe-main">
+      <div class="moe-viz">
+        <div class="phase-bar" id="phaseBar">
+          <div class="phase-chip"><span class="phase-num">01</span>Dispatch</div>
+          <div class="phase-chip"><span class="phase-num">02</span>Send</div>
+          <div class="phase-chip"><span class="phase-num">03</span>Compute</div>
+          <div class="phase-chip"><span class="phase-num">04</span>Combine</div>
+        </div>
+
+        <div class="phase-desc-bar" id="phaseDescBar">点击 Play 开始播放，观察 MoE All-to-All 通信的四个阶段。</div>
+
+        <div class="playback-controls">
+          <button class="moe-btn primary" id="playBtn"></button>
+          <button class="moe-btn" id="stepBtn">Step</button>
+          <button class="moe-btn" id="resetBtn">Reset</button>
+          <button class="moe-btn" id="rerouteBtn">Re-route</button>
+          <div class="moe-speed">
+            <div class="seg-control" id="speedSeg">
+<button class="seg-option" data-value="0.1">0.1x</button>
+<button class="seg-option" data-value="0.2">0.2x</button>
+<button class="seg-option" data-value="0.4">0.4x</button>
+<button class="seg-option active" data-value="1">1x</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="scrubber-wrap">
+          <input type="range" class="scrubber" id="scrubber" min="0" max="100" step="0.1" value="0">
+          <div class="scrubber-label">
+            <span id="scrubFrom">0.0s</span>
+            <span>wave progress</span>
+            <span id="scrubTo">6.5s</span>
+          </div>
+        </div>
+
+        <div class="viz-scroll" id="vizScroll">
+          <svg class="viz-svg" id="vizSvg" viewBox="0 0 520 500" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+
+        <div class="viz-legend" id="vizLegend"></div>
+      </div>
+
+      <div class="moe-metrics">
+        <div class="metrics-title">Load Imbalance</div>
+        <div class="metrics-grid">
+          <div class="imbalance-card">
+            <div class="imbalance-label">Imbalance Ratio</div>
+            <div class="imbalance-value" id="imbalanceValue">1.00&times;</div>
+            <div class="imbalance-hint" id="imbalanceHint">well balanced</div>
+          </div>
+          <div class="metric-list" id="metricList"></div>
+          <div class="hot-card" id="hotCard"></div>
+        </div>
+
+        <div class="affinity-section" id="affinitySection">
+          <div class="affinity-title">Expert Affinity</div>
+          <div class="affinity-sub">Popularity weights drive routing &mdash; the root cause of imbalance.</div>
+          <div class="affinity-chart" id="affinityChart"></div>
+          <div class="affinity-axis" id="affinityAxis"></div>
+        </div>
+
+        <div class="moe-note">Estimates assume a single all-to-all hop. Comm time uses one-way token movement; compute time uses the max (bottleneck) expert load. Real systems add kernel launch, NCCL overhead, and pipelining.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/moe-engine.js"></script>
+<script src="js/moe.js"></script>
+</body>
+</html>
