@@ -193,6 +193,9 @@ function addModel(model) {
   if (selectedModels.length >= MAX_MODELS) return;
   if (selectedModels.some(function (m) { return m.id === model.id; })) return;
   selectedModels.push(model);
+  if (model.formula === 'kda_gated_mla') {
+    $linearToggle.setAttribute('aria-checked', 'true');
+  }
   refresh();
 }
 
@@ -254,11 +257,14 @@ function renderTags() {
       var moved = selectedModels.splice(fromIdx, 1)[0];
       selectedModels.splice(toIdx, 0, moved);
 (function () {
-  var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'qwen3.5-397b-a17b', 'kimi-k2.6', 'minimax-m3'];
+  var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'qwen3.5-397b-a17b', 'kimi-k3', 'minimax-m3'];
   top5Ids.forEach(function (id) {
     var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
     if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
   });
+  if (selectedModels.some(function (mo) { return mo.formula === 'kda_gated_mla'; })) {
+    $linearToggle.setAttribute('aria-checked', 'true');
+  }
 })();
 
 refresh();
@@ -281,7 +287,7 @@ function updateConditionalFields() {
   $draftField.classList.toggle('hidden', !hasDraft);
 
   var hasLinear = selectedModels.some(function (m) {
-    return m.formula === 'qwen_linear_full_hybrid';
+    return ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(m.formula);
   });
   $linearField.classList.toggle('hidden', !hasLinear);
 
@@ -498,7 +504,7 @@ $presetBtns.addEventListener('click', function (e) {
   selectedModels = [];
 
   if (preset === 'top5') {
-    var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
+    var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'kimi-k3', 'minimax-m3', 'mimo-v2.5-pro'];
     top5Ids.forEach(function (id) {
       var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
       if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
@@ -526,11 +532,14 @@ $presetBtns.addEventListener('click', function (e) {
 });
 
 (function () {
-  var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'kimi-k2.6', 'minimax-m3', 'mimo-v2.5-pro'];
+  var top5Ids = ['deepseek-v4-pro', 'glm-5.2', 'kimi-k3', 'minimax-m3', 'mimo-v2.5-pro'];
   top5Ids.forEach(function (id) {
     var m = MODEL_DATA.models.find(function (mo) { return mo.id === id; });
     if (m && selectedModels.length < MAX_MODELS) selectedModels.push(m);
   });
+  if (selectedModels.some(function (mo) { return mo.formula === 'kda_gated_mla'; })) {
+    $linearToggle.setAttribute('aria-checked', 'true');
+  }
 })();
 
 refresh();

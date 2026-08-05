@@ -239,7 +239,7 @@ function updateConditionalFields() {
   var hasIndexer = modelHasIndexer(model);
   var hasAbsorption = modelSupportsAbsorption(model);
   var hasDraft = !!(model.fields.mtp_transformer_layers);
-  var hasLinear = model.formula === 'qwen_linear_full_hybrid';
+  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(model.formula);
 
   $epItem.style.display = hasMoE ? '' : 'none';
   $idxPrecField.style.display = hasIndexer ? '' : 'none';
@@ -249,6 +249,9 @@ function updateConditionalFields() {
   }
   $draftField.style.display = hasDraft ? '' : 'none';
   $linearField.style.display = hasLinear ? '' : 'none';
+  if (hasLinear && model.formula === 'kda_gated_mla') {
+    $linearToggle.checked = true;
+  }
   $absorptionField.style.display = (hasAbsorption && servingMode === 'disaggregated') ? '' : 'none';
   $prefillEpItem.style.display = hasMoE ? '' : 'none';
   $decodeEpItem.style.display = hasMoE ? '' : 'none';

@@ -227,6 +227,10 @@ function getIdxPrecBytes() {
 }
 
 function onModelChange() {
+  var m = getModel();
+  if (m && m.formula === 'kda_gated_mla') {
+    $linearToggle.setAttribute('aria-checked', 'true');
+  }
   calculate();
 }
 
@@ -371,7 +375,7 @@ function calculate() {
     $draftHint.textContent = 'Adds model-specific MTP/draft KV layers when enabled by the serving stack.';
   }
 
-  var hasLinear = formula === 'qwen_linear_full_hybrid';
+  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(formula);
   $linearField.classList.toggle('hidden', !hasLinear);
 
   var result = calcKvCache(model, tokens, precB, idxB, { includeDraft: includeDraft, includeLinear: includeLinear, seqs: seqs });

@@ -534,6 +534,84 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { label: 'Total bytes', value: fmtNum(kvBytes) },
     ];
 
+
+  // ── kda_gated_mla (Kimi K3: KDA linear attention + Gated MLA) ──
+  } else if (formula === 'kda_gated_mla') {
+    const fullLayers = f.full_attention_layers;
+    const linearLayers = f.linear_attention_layers;
+    const kvLoraRank = f.kv_lora_rank;
+    const qkRopeHd = f.qk_rope_head_dim || 0;
+    const linKvHeads = f.linear_num_key_heads;
+    const linValHeads = f.linear_num_value_heads;
+    const linKeyHd = f.linear_key_head_dim;
+    const linValHd = f.linear_value_head_dim;
+    const convDim = f.linear_conv_kernel_dim;
+
+    // Gated MLA full-attention layers: compressed latent KV per token
+    const mlaElements = fullLayers * (kvLoraRank + qkRopeHd) * tokens;
+    const mlaBytes = mlaElements * precB;
+
+    // KDA linear-attention conv state: fixed per sequence, BF16 (2 bytes)
+    const kdaConvElements = linearLayers * convDim * (2 * linKvHeads * linKeyHd + linValHeads * linValHd);
+    const kdaConvBytes = includeLinear ? kdaConvElements * 2 : 0;
+
+    // KDA delta-rule recurrent state: fixed per sequence, FP32 (4 bytes)
+    const kdaRecurrentElements = linearLayers * linValHeads * linKeyHd * linValHd;
+    const kdaRecurrentBytes = includeLinear ? kdaRecurrentElements * 4 : 0;
+
+    const kdaBytes = kdaConvBytes + kdaRecurrentBytes;
+    kvBytes = mlaBytes + kdaBytes;
+
+    perTokenBytes = (mlaBytes + kdaBytes) / tokens;
+
+    formulaTitle = model.label + ' KDA + Gated MLA attention';
+    var kdaMlaCompressedBytes = mlaBytes * kvLoraRank / (kvLoraRank + qkRopeHd);
+    var kdaMlaRopeBytes = mlaBytes * qkRopeHd / (kvLoraRank + qkRopeHd);
+    var kdaMlaBar = qkRopeHd > 0
+      ? [{ type: 'compressed', bytes: kdaMlaCompressedBytes }, { type: 'rope', bytes: kdaMlaRopeBytes }]
+      : [{ type: 'compressed', bytes: mlaBytes }];
+    formulas = [
+      { name: 'KV_f', tip: 'Gated MLA full-attention layers store a compressed latent KV cache (kv_lora_rank + qk_rope_head_dim) per token.', expr: 'L_f \u00d7 (d_c + d_r) \u00d7 T \u00d7 p', values: { L_f: fullLayers, d_c: kvLoraRank, d_r: qkRopeHd, T: tokens, p: precB }, resultValue: mlaBytes, bar: kdaMlaBar, ibarVal: fmtBytes(mlaBytes) },
+      { name: 'S_conv', tip: 'KDA short-convolution state, fixed per sequence in BF16. Include via the linear-state toggle.', expr: 'B \u00d7 L_l \u00d7 k_c \u00d7 (2 \u00d7 h_kl \u00d7 d_kl + h_vl \u00d7 d_vl) \u00d7 2', values: { L_l: linearLayers, k_c: convDim, h_kl: linKvHeads, d_kl: linKeyHd, h_vl: linValHeads, d_vl: linValHd }, resultValue: kdaConvBytes, bar: [{ type: 'fixed', bytes: kdaConvBytes }], ibarVal: fmtBytes(kdaConvBytes) },
+      { name: 'S_rec', tip: 'KDA delta-rule recurrent state, fixed per sequence in FP32. Include via the linear-state toggle.', expr: 'B \u00d7 L_l \u00d7 h_vl \u00d7 d_kl \u00d7 d_vl \u00d7 4', values: { L_l: linearLayers, h_vl: linValHeads, d_kl: linKeyHd, d_vl: linValHd }, resultValue: kdaRecurrentBytes, bar: [{ type: 'fixed-alt', bytes: kdaRecurrentBytes }], ibarVal: fmtBytes(kdaRecurrentBytes) },
+      { name: 'Total', tip: 'Combined Gated MLA + KDA cache (one sequence).', expr: 'KV_f + S_conv + S_rec', values: { KV_f: mlaBytes, S_conv: kdaConvBytes, S_rec: kdaRecurrentBytes }, resultValue: kvBytes, bar: [{ type: 'compressed', bytes: kdaMlaCompressedBytes }, { type: 'rope', bytes: kdaMlaRopeBytes }, { type: 'fixed', bytes: kdaConvBytes }, { type: 'fixed-alt', bytes: kdaRecurrentBytes }], ibarVal: fmtBytes(seqs * kvBytes) }
+    ];
+    var kdaLinearDenom = kdaConvBytes + kdaRecurrentBytes;
+    patterns = [
+      {
+        segs: qkRopeHd > 0
+          ? [{ type: 'compressed', ratio: kvLoraRank / (kvLoraRank + qkRopeHd) }, { type: 'rope', ratio: qkRopeHd / (kvLoraRank + qkRopeHd) }]
+          : [{ type: 'compressed', ratio: 1 }],
+        count: fullLayers,
+        label: 'gated MLA',
+        bytes: mlaBytes / fullLayers
+      },
+      {
+        segs: kdaLinearDenom > 0
+          ? [{ type: 'fixed', ratio: kdaConvBytes / kdaLinearDenom }, { type: 'fixed-alt', ratio: kdaRecurrentBytes / kdaLinearDenom }]
+          : [{ type: 'fixed', ratio: 0.5 }, { type: 'fixed-alt', ratio: 0.5 }],
+        count: linearLayers,
+        label: 'KDA linear',
+        bytes: kdaLinearDenom > 0 ? kdaBytes / linearLayers : 0
+      }
+    ];
+    legendTypes = ['compressed', 'rope', 'fixed'];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(f.num_hidden_layers || (fullLayers + linearLayers)) },
+      { label: 'Gated MLA layers', value: fmtNum(fullLayers) },
+      { label: 'KDA linear layers', value: fmtNum(linearLayers) },
+      { label: 'KV LoRA rank', value: fmtNum(kvLoraRank) },
+      { label: 'QK RoPE head dim', value: fmtNum(qkRopeHd) },
+      { label: 'MLA KV elements', value: fmtNum(mlaElements) },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'KDA state included', value: includeLinear ? 'Yes' : 'No', tip: 'Whether KDA conv + recurrent state is included in the calculation.' },
+      { label: 'KDA conv elements', value: fmtNum(kdaConvElements) },
+      { label: 'KDA recurrent elements', value: fmtNum(kdaRecurrentElements) },
+      { label: 'Per-token elements', value: fmtNum(fullLayers * (kvLoraRank + qkRopeHd)), tip: 'Gated MLA only: full_layers \u00d7 (kv_lora_rank + qk_rope_head_dim)' },
+      { label: 'Total bytes', value: fmtNum(kvBytes) },
+    ];
+
   // ── msa_gqa (MiniMax Sparse Attention + GQA) ──
   } else if (formula === 'msa_gqa') {
     const layers = f.num_hidden_layers;

@@ -367,5 +367,5 @@ function modelHasIndexer(model) {
 
 function modelSupportsAbsorption(model) {
   var formula = model.formula;
-  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid';
+  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid' || formula === 'kda_gated_mla';
 }
