@@ -16,7 +16,6 @@ var $themeToggle = document.getElementById('themeToggle');
 var $breakdownToggle = document.getElementById('breakdownToggle');
 
 var selectedModelId = 'deepseek-v4-pro';
-var currentUnit = 'gb';
 var wtPrecValue = 'fp8_int8';
 
 function initTheme() {
@@ -196,24 +195,15 @@ initSegControl($wtPrecSeg, function (val) {
 });
 
 function formatTotal(bytes) {
-  if (currentUnit === 'gib') return (bytes / Math.pow(1024, 3)).toFixed(5);
-  if (currentUnit === 'gb') return (bytes / 1e9).toFixed(5);
-  if (currentUnit === 'mib') return (bytes / Math.pow(1024, 2)).toFixed(3);
-  return bytes;
+  return (bytes / 1e9).toFixed(5);
 }
 
 function getUnitLabel() {
-  if (currentUnit === 'gib') return 'GiB';
-  if (currentUnit === 'gb') return 'GB';
-  if (currentUnit === 'mib') return 'MiB';
-  return '';
+  return 'GB';
 }
 
 function formatMetric(bytes) {
-  if (bytes < 1024) return bytes.toFixed(0) + ' B';
-  if (bytes < Math.pow(1024, 2)) return (bytes / 1024).toFixed(2) + ' KiB';
-  if (bytes < Math.pow(1024, 3)) return (bytes / Math.pow(1024, 2)).toFixed(2) + ' MiB';
-  return (bytes / Math.pow(1024, 3)).toFixed(3) + ' GiB';
+  return (bytes / 1e9).toFixed(5) + ' GB';
 }
 
 function formatParams(n) {
@@ -236,15 +226,6 @@ function formatSymbol(text) {
 function getWeightBarColorClass(type) { return WEIGHT_BAR_COLOR_MAP[type] || 'seg-full'; }
 function getWeightBarHex(type) { return WEIGHT_BAR_HEX_MAP[type] || '#4263eb'; }
 function getWeightLegendLabel(type) { return WEIGHT_LEGEND_LABEL_MAP[type] || type; }
-
-document.querySelectorAll('.unit-btn').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    document.querySelectorAll('.unit-btn').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    currentUnit = btn.getAttribute('data-unit');
-    calculate();
-  });
-});
 
 function calculate() {
   var model = getModel();
@@ -327,12 +308,14 @@ function calculate() {
       var ibarHtml = '';
       if (f.bar && f.bar.length > 0) {
         ibarHtml = '<div class="ibar">';
+        var formulaBytes = 0;
         f.bar.forEach(function (seg) {
+          formulaBytes += seg.bytes;
           var w = globalMaxBarBytes > 0 ? Math.max(1, (seg.bytes / globalMaxBarBytes) * 120) : 1;
           ibarHtml += '<div class="seg ' + getWeightBarColorClass(seg.type) + '" style="width:' + w + 'px" data-tooltip="' + getWeightLegendLabel(seg.type) + ': ' + formatMetric(seg.bytes) + '"></div>';
         });
         ibarHtml += '</div>';
-        ibarHtml += '<div class="ibar-val">' + (f.ibarVal || '') + '</div>';
+        ibarHtml += '<div class="ibar-val">' + formatMetric(formulaBytes) + '</div>';
       }
 
       return '<div class="formula-row">' +

@@ -59,14 +59,16 @@
           <button class="seg-option" data-value="bf16">BF16</button>
           <button class="seg-option active" data-value="fp8_int8">FP8</button>
           <button class="seg-option" data-value="fp4_int4">FP4</button>
+          <button class="seg-option" data-value="w8a8" title="W8A8">W8A8</button>
+          <button class="seg-option" data-value="w4a8" title="W4A8">W4A8</button>
         </div>
       </div>
 
       <div class="field">
         <label>KV precision</label>
         <div class="seg-control" id="kvPrecSeg">
-          <button class="seg-option" data-value="bf16">BF16</button>
-          <button class="seg-option active" data-value="fp8_int8">FP8</button>
+          <button class="seg-option active" data-value="bf16">BF16</button>
+          <button class="seg-option" data-value="fp8_int8">FP8</button>
           <button class="seg-option" data-value="fp4_int4">FP4</button>
         </div>
       </div>
@@ -74,8 +76,8 @@
       <div class="field" id="idxPrecField" style="display:none">
         <label>Indexer precision</label>
         <div class="seg-control" id="idxPrecSeg">
-          <button class="seg-option" data-value="bf16">BF16</button>
-          <button class="seg-option active" data-value="fp8_int8">FP8</button>
+          <button class="seg-option active" data-value="bf16">BF16</button>
+          <button class="seg-option" data-value="fp8_int8">FP8</button>
           <button class="seg-option" data-value="fp4_int4">FP4</button>
         </div>
       </div>
@@ -85,10 +87,14 @@
         <input class="text-input" type="number" id="ctxInput" value="8192" min="1" step="1">
         <div class="preset-row" id="ctxPresets">
           <button class="preset-btn" data-value="1024">1K</button>
+          <button class="preset-btn" data-value="2048">2K</button>
           <button class="preset-btn" data-value="4096">4K</button>
           <button class="preset-btn active" data-value="8192">8K</button>
+          <button class="preset-btn" data-value="16384">16K</button>
           <button class="preset-btn" data-value="32768">32K</button>
+          <button class="preset-btn" data-value="65536">64K</button>
           <button class="preset-btn" data-value="131072">128K</button>
+          <button class="preset-btn" data-value="262144">256K</button>
           <button class="preset-btn" data-value="524288">512K</button>
           <button class="preset-btn" data-value="1048576">1M</button>
         </div>
@@ -231,12 +237,7 @@
     <div class="result-area" id="resultArea">
       <div class="total-display">
         <div class="total-value" id="totalPerGpu">&mdash;</div>
-        <div class="total-unit" id="totalUnit"></div>
-      </div>
-      <div class="unit-selector">
-        <button class="unit-btn" data-unit="gib">GiB</button>
-        <button class="unit-btn active" data-unit="gb">GB</button>
-        <button class="unit-btn" data-unit="mib">MiB</button>
+        <div class="total-unit" id="totalUnit">GB</div>
       </div>
       <div id="ibarSection" class="ibar-section"></div>
       <div id="gpuFitSection"></div>

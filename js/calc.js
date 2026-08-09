@@ -32,15 +32,12 @@ var SYMBOL_NAMES = {
 };
 
 /**
- * Format bytes using binary (IEC) prefixes (KiB, MiB, GiB).
+ * Format bytes as decimal GB so every calculated memory value shares one unit.
  * @param {number} bytes
  * @returns {string}
  */
 function fmtBytes(bytes) {
-  if (bytes < 1024) return bytes.toFixed(0) + ' B';
-  if (bytes < 1024**2) return (bytes / 1024).toFixed(5) + ' KiB';
-  if (bytes < 1024**3) return (bytes / 1024**2).toFixed(5) + ' MiB';
-  return (bytes / 1024**3).toFixed(5) + ' GiB';
+  return (bytes / 1e9).toFixed(5) + ' GB';
 }
 
 /**

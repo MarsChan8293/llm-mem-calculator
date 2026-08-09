@@ -61,6 +61,8 @@
           <button class="seg-option" data-value="bf16">BF16</button>
           <button class="seg-option active" data-value="fp8_int8">FP8</button>
           <button class="seg-option" data-value="fp4_int4">FP4</button>
+          <button class="seg-option" data-value="w8a8" title="W8A8">W8A8</button>
+          <button class="seg-option" data-value="w4a8" title="W4A8">W4A8</button>
         </div>
       </div>
     </div>
@@ -68,12 +70,7 @@
     <div class="result-area">
       <div class="total-display">
         <div class="total-value" id="totalParams">&mdash;</div>
-        <div class="total-unit" id="totalBytes"></div>
-      </div>
-      <div class="unit-selector">
-        <button class="unit-btn" data-unit="gib">GiB</button>
-        <button class="unit-btn active" data-unit="gb">GB</button>
-        <button class="unit-btn" data-unit="mib">MiB</button>
+        <div class="total-unit" id="totalBytes">GB</div>
       </div>
       <div class="metrics-compact" id="metricsCompact"></div>
       <div id="formulaSection" class="formula-section hidden">

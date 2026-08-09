@@ -262,8 +262,8 @@ function calcUnifiedDeploy(model, options) {
 │  └─────────────────────────────────┘  │  │  [GiB] [GB] [MiB]                        │
 │  [● DeepSeek V4 Pro ×]               │  │                                          │
 │                                       │  │  GPU Fit                                 │
-│  ── Precision ──                      │  │  38.2 / 80.0 GiB (H100) ✅ 47.8%        │
-│  Weight  [BF16][FP8][FP4]            │  │  ████████████░░░░░░░░░░░░░░░░             │
+│  ── Precision ──                      │  │  38.2 / 288.0 GB (B300) ✅ 13.3%        │
+│  Weight  [BF16][FP8][FP4][昇腾 W8A8][昇腾 W4A8] │  │  ████████████░░░░░░░░░░░░░░░░             │
 │  KV      [BF16][FP8][FP4]            │  │                                          │
 │  Indexer [BF16][FP8][FP4]            │  │  ── Weight Breakdown ──                   │
 │                                       │  │  Attn weights     4.2 GiB                │
@@ -284,17 +284,17 @@ function calcUnifiedDeploy(model, options) {
 │  DP  [1]                              │  │  [Attn][ShrExp][Expert] × 30             │
 │                                       │  │                                          │
 │  Indexer TP [8]  ← 仅 MoE 模型显示    │  │  ── GPU Count Estimate ──                │
-│                                       │  │  H100 80GiB:  8 cards (TP×PP×DP)         │
-│  ── Serving Mode ──                  │  │  A100 80GiB:  8 cards                    │
-│  ○ Unified                           │  │  A100 40GiB:  ⚠️ OOM                     │
+│                                       │  │  B300 288GB:  8 cards (TP×PP×DP)        │
+│  ── Serving Mode ──                  │  │  H200 141GB:  8 cards                   │
+│  ○ Unified                           │  │  L20 48GB:  ⚠️ OOM                       │
 │  ● Disaggregated                     │  │                                          │
 │                                       │  │  ── Disaggregated View ──                │
 │    Prefill TP  [8]  EP  [8]          │  │  ┌──────────────┐ ┌──────────────┐      │
 │    Decode  TP  [2]  EP  [8]          │  │  │ Prefill GPU  │ │ Decode GPU   │      │
 │    ☐ MLA Absorption                  │  │  │ 52.1 GiB     │ │ 28.7 GiB     │      │
 │                                       │  │  │ ██████████░ │ │ ██████░░░░░  │      │
-│  ── GPU Target ──                    │  │  │ H100 ✅ 65%  │ │ H100 ✅ 36%  │      │
-│  [H100 80GiB ▼]                      │  │  └──────────────┘ └──────────────┘      │
+│  ── GPU Target ──                    │  │  │ B300 ✅ 65%  │ │ B300 ✅ 36%  │      │
+│  [B300 288GB ▼]                      │  │  └──────────────┘ └──────────────┘      │
 │                                       │  │                                          │
 │                                       │  │  Note                                    │
 │                                       │  │  Source                                  │
@@ -306,9 +306,9 @@ function calcUnifiedDeploy(model, options) {
 | 控件 | 类型 | 默认值 | 条件显示 | 说明 |
 |---|---|---|---|---|
 | Model picker | 搜索式 Picker | deepseek-v4-pro | 始终 | 复用 |
-| Weight precision | Segmented | BF16 | 始终 | |
-| KV precision | Segmented | FP8 | 始终 | |
-| Indexer precision | Segmented | FP8 | 有 indexer 的模型 | |
+| Weight precision | Segmented | BF16 / FP8 / FP4 / 昇腾 W8A8 / 昇腾 W4A8 | 始终 | |
+| KV precision | Segmented | BF16 | 始终 | |
+| Indexer precision | Segmented | BF16 | 有 indexer 的模型 | |
 | Context length | 输入 + 预设 | 1,024 | 始终 | 复用 calculator.js |
 | Batch size | 按钮 + 自定义 | 1 | 始终 | |
 | Include draft KV | Toggle | off | 有 draft 的模型 | |
@@ -322,7 +322,7 @@ function calcUnifiedDeploy(model, options) {
 | Prefill TP/EP | 数字输入 | TP=8, EP=8 | Disaggregated | **新增** |
 | Decode TP/EP | 数字输入 | TP=2, EP=8 | Disaggregated | **新增** |
 | MLA Absorption | Toggle | off | MLA 模型 + Disaggregated | **新增** |
-| GPU type | 下拉 | H100 80GiB | 始终 | **新增** |
+| GPU type | 下拉 | B300 288GB | 始终 | **新增** |
 
 ### 5.3 条件显示规则
 
@@ -340,23 +340,30 @@ if (model formula === qwen_linear_full_hybrid) → 显示 Include linear KV
 
 ```javascript
 var GPU_OPTIONS = [
-  { id: 'h100_80',  label: 'H100 80GiB',  vram: 80 * 1024**3 },
-  { id: 'h100_40',  label: 'H100 40GiB',  vram: 40 * 1024**3 },
-  { id: 'a100_80',  label: 'A100 80GiB',  vram: 80 * 1024**3 },
-  { id: 'a100_40',  label: 'A100 40GiB',  vram: 40 * 1024**3 },
-  { id: 'h200_140', label: 'H200 141GiB', vram: 141 * 1024**3 },
-  { id: 'b200_180', label: 'B200 180GiB', vram: 180 * 1024**3 },
-  { id: 'b300_288', label: 'B300 288GiB', vram: 288 * 1024**3 },
-  { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 48 * 1024**3 },
-  { id: 'l4_24',    label: 'L4 24GiB',    vram: 24 * 1024**3 },
-  { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 64 * 1024**3 },
-  { id: 'h20_141',        label: 'H20 141GiB',         vram: 141 * 1024**3 },
-  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 112 * 1024**3 },
-  { id: 'gb10_128',        label: 'GB10 128GiB',        vram: 128 * 1024**3 },
-  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 72 * 1024**3 },
-  { id: 'l20_48',          label: 'L20 48GiB',          vram: 48 * 1024**3 },
+  { id: 'b300_288', label: 'B300 288GB', vram: 288 * 1e9 },
+  { id: 'h20_141',        label: 'H20 141GB',         vram: 141 * 1e9 },
+  { id: 'h200_141',       label: 'H200 141GB',        vram: 141 * 1e9 },
+  { id: 'l20_48',         label: 'L20 48GB',          vram: 48 * 1e9 },
+  { id: 'ascend_910b_64', label: 'Ascend 910B 64GB', vram: 64 * 1e9 },
+  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GB', vram: 112 * 1e9 },
+  { id: 'gb10_128',        label: 'GB10 128GB',        vram: 128 * 1e9 },
+  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GB', vram: 72 * 1e9 },
 ];
 ```
+
+GPU Fit 使用 vLLM 风格的保守预算：
+
+```javascript
+var VLLM_GPU_MEMORY_UTILIZATION = 0.90;
+var VLLM_CUDA_GRAPH_OVERHEAD_GB = 5;
+var VLLM_CUDA_GRAPH_OVERHEAD_BYTES = VLLM_CUDA_GRAPH_OVERHEAD_GB * 1e9;
+
+usable_vram = gpu_vram * VLLM_GPU_MEMORY_UTILIZATION;
+fit_memory = total_per_gpu + VLLM_CUDA_GRAPH_OVERHEAD_BYTES;
+usage = fit_memory / usable_vram;
+```
+
+`5 GB` 是 CUDA Graph 等固定开销的保守默认值，集中调整 `VLLM_CUDA_GRAPH_OVERHEAD_GB` 即可适配不同模型或 capture 配置。
 
 ---
 
@@ -436,9 +443,13 @@ function calcDeploy(model, options) { ... }
   
   // GPU fit
   gpuFit: {
-    gpuId: 'h100_80',
+    gpuId: 'b300_288',
     vram: number,
-    usage: number,            // totalPerGPU / vram
+    usableVram: number,       // vram × vLLM utilization limit
+    fixedOverhead: number,    // CUDA Graph reserve
+    usedVram: number,         // totalPerGPU + fixedOverhead
+    utilizationLimit: number, // 0.90
+    usage: number,            // usedVram / usableVram
     fits: boolean,
   },
   
@@ -631,14 +642,17 @@ Per-GPU Memory (TP=8, PP=1, EP=8)
 展示占用量与 GPU VRAM 的关系：
 
 ```
-H100 80GiB
-[████████████████░░░░░░░░░░░░░░░░░░░░░░░] 38.2 / 80.0 GiB  ✅ 47.8%
+B300 288GB
+[████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 43.2 / 259.2 GB usable  ✅ 16.7%
+288GB × 90% − 5GB CUDA Graph reserve
 
-A100 40GiB  
-[███████████████████████████████████░░░░] 38.2 / 40.0 GiB  ⚠️ 95.5%
+H200 141GB
+[███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 43.2 / 126.9 GB usable  ✅ 34.0%
+141GB × 90% − 5GB CUDA Graph reserve
 
-A100 80GiB × 4 卡
-[████████████████████░░░░░░░░░░░░░░░░░░░] 38.2 / 80.0 GiB  ✅ 47.8%
+L20 48GB
+[████████████████████████████████████████] 43.2 / 43.2 GB usable  ❌ 100.0%
+48GB × 90% − 5GB CUDA Graph reserve
 ```
 
 颜色规则：
@@ -762,21 +776,14 @@ const MODEL_DATA = {
   weight_precision_options: [...],  // Weights tab 已新增
   
   gpu_options: [
-    { id: 'h100_80',  label: 'H100 80GiB',  vram: 85899345920 },
-    { id: 'h200_140', label: 'H200 141GiB', vram: 151393783808 },
-    { id: 'b200_180', label: 'B200 180GiB', vram: 193273528320 },
-    { id: 'b300_288', label: 'B300 288GiB', vram: 309237645312 },
-    { id: 'a100_80',  label: 'A100 80GiB',  vram: 85899345920 },
-    { id: 'a100_40',  label: 'A100 40GiB',  vram: 42949672960 },
-    { id: 'h100_40',  label: 'H100 40GiB',  vram: 42949672960 },
-    { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 51539607552 },
-    { id: 'l4_24',    label: 'L4 24GiB',    vram: 25769803776 },
-    { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 68719476736 },
-    { id: 'h20_141', label: 'H20 141GiB', vram: 151393783808 },
-    { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 120259084288 },
-    { id: 'gb10_128', label: 'GB10 128GiB', vram: 137438953472 },
-    { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 77309411328 },
-    { id: 'l20_48', label: 'L20 48GiB', vram: 51539607552 },
+    { id: 'b300_288', label: 'B300 288GB', vram: 288000000000 },
+    { id: 'h20_141', label: 'H20 141GB', vram: 141000000000 },
+    { id: 'h200_141', label: 'H200 141GB', vram: 141000000000 },
+    { id: 'l20_48', label: 'L20 48GB', vram: 48000000000 },
+    { id: 'ascend_910b_64', label: 'Ascend 910B 64GB', vram: 64000000000 },
+    { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GB', vram: 112000000000 },
+    { id: 'gb10_128', label: 'GB10 128GB', vram: 128000000000 },
+    { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GB', vram: 72000000000 },
   ],
   
   // 每个 model 新增 deploy_defaults（可选，覆盖通用默认值）
@@ -791,7 +798,7 @@ const MODEL_DATA = {
 deploy_defaults: {
   tp: 8, pp: 1, ep: 8, dp: 1,
   idx_tp: 8,
-  gpu: 'h100_80',
+  gpu: 'b300_288',
   mode: 'unified',
 }
 
@@ -799,7 +806,7 @@ deploy_defaults: {
 deploy_defaults: {
   tp: 1, pp: 1, ep: 1, dp: 1,
   idx_tp: 1,
-  gpu: 'a100_40',
+  gpu: 'l20_48',
   mode: 'unified',
 }
 ```
@@ -968,7 +975,7 @@ Phase 4: Disaggregated 模式
 | Expert 不均匀分配 | `ceil(n/ep)` 是粗略估计 | V1 均匀，未来支持自定义 |
 | PP 层分配策略 | V1 均匀分配，不考虑权重平衡 | 未来支持按权重平衡 |
 | 通信开销 | TP/EP 的 all-reduce/all-to-all 通信缓冲区未计入 | V1 不含 |
-| CUDA 内核碎片 | 实际显存有 5-10% 的碎片开销 | V1 不含，在 Note 中提醒用户预留 |
+| vLLM / CUDA Graph 固定开销 | CUDA Graph 等开销随模型、batch 和 capture 配置变化 | GPU Fit 默认预留 5 GB/卡，可调整 `VLLM_CUDA_GRAPH_OVERHEAD_GB` |
 | 混合精度权重 | 部分模型 attention BF16 + expert FP8 | V1 统一精度 |
 | Custom expert mapping | 不同 GPU 可能承载不同数量的 expert | V1 均匀 |
 | vLLM/SGLang 特定优化 | 不同 serving 框架的显存策略不同 | V1 不区分框架 |

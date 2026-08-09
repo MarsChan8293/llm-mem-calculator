@@ -27,10 +27,7 @@ var WEIGHT_LEGEND_LABEL_MAP = {
 };
 
 function fmtWBytes(bytes) {
-  if (bytes < 1024) return bytes.toFixed(0) + ' B';
-  if (bytes < 1024**2) return (bytes / 1024).toFixed(2) + ' KiB';
-  if (bytes < 1024**3) return (bytes / 1024**2).toFixed(2) + ' MiB';
-  return (bytes / 1024**3).toFixed(3) + ' GiB';
+  return (bytes / 1e9).toFixed(5) + ' GB';
 }
 
 function fmtWNum(n) { return n.toLocaleString('en-US'); }

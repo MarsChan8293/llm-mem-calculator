@@ -2,7 +2,8 @@
  * Model data for the LLM KV Cache Memory Calculator.
  *
  * Contains all model definitions (architecture, layer counts, head dimensions,
- * formula types), precision options for KV cache, and indexer precision options.
+ * formula types), precision options for KV cache, indexer precision options,
+ * and weight formats used by the Weights and Deploy pages.
  *
  * Loaded as a global via <script> tag; other modules (calc.js, calculator.js,
  * compare.js) reference it as `MODEL_DATA`.
@@ -19,9 +20,11 @@ const MODEL_DATA = {
     { id: "fp4_int4",  label: "FP4 / INT4",  bytes_per_element: 0.5 }
   ],
   weight_precision_options: [
-    { id: "bf16",     label: "BF16",  bytes_per_element: 2 },
-    { id: "fp8_int8", label: "FP8",   bytes_per_element: 1 },
-    { id: "fp4_int4", label: "FP4",   bytes_per_element: 0.5 }
+    { id: "bf16",     label: "BF16",       bytes_per_element: 2 },
+    { id: "fp8_int8", label: "FP8",        bytes_per_element: 1 },
+    { id: "fp4_int4", label: "FP4",        bytes_per_element: 0.6 },
+    { id: "w8a8",     label: "W8A8",      bytes_per_element: 1 },
+    { id: "w4a8",     label: "W4A8",      bytes_per_element: 0.55 }
   ],
   models: [
     { id:"deepseek-v4-pro", label:"DeepSeek V4 Pro", family:"DeepSeek", formula:"deepseek_v4_hybrid", default_tokens:1024, max_position_embeddings:1048576, source_url:"https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/raw/main/config.json", source_retrieved_at:"2026-05-20", fields:{ num_hidden_layers:61, num_key_value_heads:1, head_dim:512, sliding_window:128, index_head_dim:128, index_n_heads:64, index_topk:1024, compress_ratios:[128,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4,128,4] }, weight_fields:{ hidden_size:7168, num_attention_heads:128, vocab_size:129280, tie_word_embeddings:false, ffn_type:"swiglu", q_lora_rank:1536, o_lora_rank:1024, o_groups:16, n_routed_experts:384, n_shared_experts:1, moe_intermediate_size:3072, num_experts_per_tok:6 }},

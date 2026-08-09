@@ -58,10 +58,9 @@ var $sourceLink = document.getElementById('sourceLink');
 var $themeToggle = document.getElementById('themeToggle');
 
 var selectedModelId = 'deepseek-v4-pro';
-var currentUnit = 'gb';
 var wtPrecValue = 'fp8_int8';
-var kvPrecValue = 'fp8_int8';
-var idxPrecValue = 'fp8_int8';
+var kvPrecValue = 'bf16';
+var idxPrecValue = 'bf16';
 var servingMode = 'unified';
 
 function initTheme() {
@@ -325,34 +324,16 @@ GPU_OPTIONS.forEach(function (g) {
 });
 $gpuSelect.addEventListener('change', function () { calculate(); });
 
-document.querySelectorAll('.unit-btn').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    document.querySelectorAll('.unit-btn').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    currentUnit = btn.getAttribute('data-unit');
-    calculate();
-  });
-});
-
 function formatTotal(bytes) {
-  if (currentUnit === 'gib') return (bytes / Math.pow(1024, 3)).toFixed(5);
-  if (currentUnit === 'gb') return (bytes / 1e9).toFixed(5);
-  if (currentUnit === 'mib') return (bytes / Math.pow(1024, 2)).toFixed(3);
-  return bytes;
+  return (bytes / 1e9).toFixed(5);
 }
 
 function getUnitLabel() {
-  if (currentUnit === 'gib') return 'GiB';
-  if (currentUnit === 'gb') return 'GB';
-  if (currentUnit === 'mib') return 'MiB';
-  return '';
+  return 'GB';
 }
 
 function formatMetric(bytes) {
-  if (bytes < 1024) return bytes.toFixed(0) + ' B';
-  if (bytes < Math.pow(1024, 2)) return (bytes / 1024).toFixed(2) + ' KiB';
-  if (bytes < Math.pow(1024, 3)) return (bytes / Math.pow(1024, 2)).toFixed(2) + ' MiB';
-  return (bytes / Math.pow(1024, 3)).toFixed(3) + ' GiB';
+  return (bytes / 1e9).toFixed(5) + ' GB';
 }
 
 function fmtNum(n) { return n.toLocaleString('en-US'); }
@@ -413,12 +394,15 @@ function renderGpuFit(fit) {
     statusIcon = '\u274c';
     barColor = '#e03131';
   }
-  var usedGiB = (fit.vram * fit.usage / Math.pow(1024, 3)).toFixed(1);
-  var totalGiB = (fit.vram / Math.pow(1024, 3)).toFixed(1);
+  var usedGB = (fit.usedVram / 1e9).toFixed(2);
+  var usableGB = (fit.usableVram / 1e9).toFixed(2);
+  var totalGB = (fit.vram / 1e9).toFixed(2);
+  var overheadGB = (fit.fixedOverhead / 1e9).toFixed(2);
   var html = '<div class="gpu-fit-card ' + status + '">';
   html += '<div class="gpu-fit-header">' + fit.label + '</div>';
   html += '<div class="gpu-fit-bar-wrap"><div class="gpu-fit-bar" style="width:' + Math.min(100, pct) + '%;background:' + barColor + '"></div></div>';
-  html += '<div class="gpu-fit-stats">' + usedGiB + ' / ' + totalGiB + ' GiB ' + statusIcon + ' ' + pct + '%</div>';
+  html += '<div class="gpu-fit-stats">' + usedGB + ' / ' + usableGB + ' GB usable ' + statusIcon + ' ' + pct + '%</div>';
+  html += '<div class="gpu-fit-note">' + totalGB + ' GB × ' + (fit.utilizationLimit * 100).toFixed(0) + '% − ' + overheadGB + ' GB CUDA Graph reserve</div>';
   html += '</div>';
   return html;
 }
@@ -460,7 +444,7 @@ function renderFormulaRows(formulas) {
     expr = expr.replace(/\u230b/g, '<span class="floor">\u230b</span>');
 
     var nameTooltip = '';
-    if (f.resultValue !== undefined) nameTooltip = fmtNum(f.resultValue);
+    if (f.resultValue !== undefined) nameTooltip = formatMetric(f.resultValue);
     if (f.tip) nameTooltip = nameTooltip ? nameTooltip + '\n' + f.tip : f.tip;
     var namePill = '<span class="pill pill-result" data-tooltip="' + nameTooltip.replace(/"/g, '&quot;') + '">' + formatSymbol(f.name) + '</span>';
 
@@ -495,8 +479,8 @@ function epShade(base, g) {
   return 'hsl(' + h + ',' + s + '%,' + l + '%)';
 }
 
-function topoGib(bytes) {
-  return (bytes / Math.pow(1024, 3)).toFixed(2) + ' GiB';
+function topoGb(bytes) {
+  return (bytes / 1e9).toFixed(2) + ' GB';
 }
 
 function renderTopology(model, result, opts) {
@@ -528,7 +512,7 @@ function renderTopology(model, result, opts) {
     html += '<div class="block-title"><div class="block-title-dot" style="background:' + p.attn + '"></div>Attention' + (dp > 1 ? ' ' + (a + 1) : '') + '</div>';
 
     html += '<div class="row">';
-    html += '<div class="row-label">W<sub>qkv</sub> <span class="row-hint">TP column split (by heads)</span> <span class="row-gib">' + topoGib(wb.attnPerGPU) + '</span></div>';
+    html += '<div class="row-label">W<sub>qkv</sub> <span class="row-hint">TP column split (by heads)</span> <span class="row-gb">' + topoGb(wb.attnPerGPU) + '</span></div>';
     html += '<div class="col-bar" style="height:32px">';
     for (var g = 0; g < tp; g++) {
       html += '<div class="col-shard" style="background:' + p.attn + '" data-tooltip="GPU ' + g + ': QKV shard ' + (g + 1) + '/' + tp + '">' + g + '</div>';
@@ -546,7 +530,7 @@ function renderTopology(model, result, opts) {
     html += '</div>';
 
     html += '<div class="row">';
-    html += '<div class="row-label">KV Cache <span class="row-hint">TP split (by heads)</span> <span class="row-gib">' + topoGib(kb.kvPerGPU) + '</span></div>';
+    html += '<div class="row-label">KV Cache <span class="row-hint">TP split (by heads)</span> <span class="row-gb">' + topoGb(kb.kvPerGPU) + '</span></div>';
     html += '<div class="kv-bar" style="height:16px">';
     for (var g = 0; g < tp; g++) {
       html += '<div class="kv-shard" style="background:' + p.kv + '" data-tooltip="GPU ' + g + ': KV shard ' + (g + 1) + '/' + tp + '">' + g + '</div>';
@@ -567,7 +551,7 @@ function renderTopology(model, result, opts) {
 
   if (hasDense) {
     html += '<div class="row">';
-    html += '<div class="row-label">Dense FFN <span class="row-hint">TP col + row</span> <span class="row-gib">' + topoGib(wb.denseFfnPerGPU) + '</span></div>';
+    html += '<div class="row-label">Dense FFN <span class="row-hint">TP col + row</span> <span class="row-gb">' + topoGb(wb.denseFfnPerGPU) + '</span></div>';
     html += '<div class="col-bar" style="height:14px">';
     for (var g = 0; g < tp; g++) {
       html += '<div class="col-shard" style="background:' + p.shared + '" data-tooltip="GPU ' + g + ': Dense Gate/Up shard"></div>';
@@ -584,7 +568,7 @@ function renderTopology(model, result, opts) {
   if (isMoE) {
     if (nShared > 0) {
       html += '<div class="row">';
-      html += '<div class="row-label">Shared Expert <span class="row-hint">TP col + row</span> <span class="row-gib">' + topoGib(wb.sharedExpertPerGPU) + '</span></div>';
+      html += '<div class="row-label">Shared Expert <span class="row-hint">TP col + row</span> <span class="row-gb">' + topoGb(wb.sharedExpertPerGPU) + '</span></div>';
       html += '<div class="col-bar" style="height:14px">';
       for (var g = 0; g < tp; g++) {
         html += '<div class="col-shard" style="background:' + p.shared + '" data-tooltip="GPU ' + g + ': Shared Gate/Up shard"></div>';
@@ -599,7 +583,7 @@ function renderTopology(model, result, opts) {
     }
 
     html += '<div class="row">';
-    html += '<div class="row-label">Routed Experts <span class="row-hint">EP=' + ep + ' groups, TP col+row inside each</span> <span class="row-gib" style="color:var(--ep)">' + topoGib(wb.routedExpertPerGPU) + '</span></div>';
+    html += '<div class="row-label">Routed Experts <span class="row-hint">EP=' + ep + ' groups, TP col+row inside each</span> <span class="row-gb" style="color:var(--ep)">' + topoGb(wb.routedExpertPerGPU) + '</span></div>';
     html += '<div class="ep-groups">';
     for (var g = 0; g < ep; g++) {
       var eStart = g * expertsPerGPU + 1;
@@ -804,7 +788,7 @@ function renderUnified(result, model, opts) {
 
   $breakdownGrid.innerHTML = buildBreakdownRows(result);
 
-  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. Indexer TP may differ from model TP. Excludes activations, framework overhead, and communication buffers.';
+  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. GPU Fit reserves ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% VRAM for vLLM headroom and ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB per GPU for CUDA Graph capture. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }
@@ -843,7 +827,7 @@ function renderDisaggregated(result, model, opts) {
 
   $breakdownGrid.innerHTML = buildBreakdownRows(pre) + '<div class="breakdown-sep"></div>' + buildBreakdownRows(dec);
 
-  $noteSection.textContent = 'Disaggregated deployment: prefill and decode use separate GPU clusters with different parallelism. Per-GPU estimates exclude activations, framework overhead, and communication buffers.';
+  $noteSection.textContent = 'Disaggregated deployment: prefill and decode use separate GPU clusters with different parallelism. GPU Fit reserves ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% VRAM for vLLM headroom and ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB per GPU for CUDA Graph capture. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }

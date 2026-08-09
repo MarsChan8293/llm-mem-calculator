@@ -43,7 +43,7 @@
 │  [● DeepSeek V4 Pro ×]     │  │  ████████████████████████████████████ │
 │                             │  │  ██ Attn  ██ Dense  ██ Shared        │
 │  Weight precision           │  │  ██ Experts  ██ Embed                │
-│  [BF16] [FP8] [FP4]        │  │                                       │
+│  [BF16] [FP8] [FP4] [昇腾 W8A8] [昇腾 W4A8] │  │                    │
 │                             │  │  Layer Patterns                       │
 │                             │  │  [Dense L0  ][MoE L1-L60 ×60]       │
 │                             │  │                                       │
@@ -66,7 +66,7 @@
 |---|---|---|
 | Model picker | 搜索式 Picker | 复用现有组件，单选模式 |
 | Selected tag | Tag | 复用现有组件 |
-| Weight precision | Segmented control | BF16 / FP8 / FP4（独立于 KV precision） |
+| Weight precision | Segmented control | BF16 / FP8 / FP4 / 昇腾 W8A8 / 昇腾 W4A8（独立于 KV precision） |
 
 **注意**：Weights 页面没有 Context length、Batch size、Indexer precision、Draft toggle、Linear toggle。权重是模型固有属性，不随推理参数变化。
 
@@ -95,9 +95,11 @@ const MODEL_DATA = {
   // ... existing fields ...
 
   weight_precision_options: [
-    { id: "bf16",       label: "BF16",  bytes_per_element: 2 },
-    { id: "fp8_int8",   label: "FP8",   bytes_per_element: 1 },
-    { id: "fp4_int4",   label: "FP4",   bytes_per_element: 0.5 }
+    { id: "bf16",       label: "BF16",       bytes_per_element: 2 },
+    { id: "fp8_int8",   label: "FP8",        bytes_per_element: 1 },
+    { id: "fp4_int4",   label: "FP4",        bytes_per_element: 0.5 },
+    { id: "w8a8",       label: "昇腾 W8A8", bytes_per_element: 1 },
+    { id: "w4a8",       label: "昇腾 W4A8", bytes_per_element: 0.5 }
   ],
 ```
 
@@ -352,7 +354,7 @@ const MODEL_DATA = {
  * 计算模型权重总量和构成
  *
  * @param {Object} model - MODEL_DATA 中的模型条目
- * @param {number} wtPrecB - Weight 精度字节数 (2=BF16, 1=FP8, 0.5=FP4)
+ * @param {number} wtPrecB - Weight 精度字节数 (2=BF16, 1=FP8/W8A8, 0.5=FP4/W4A8)
  * @returns {{
  *   totalParams: number,        // 总参数量
  *   totalBytes: number,         // 总权重字节数

@@ -29,7 +29,7 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 
 ## Features
 
-- **Precision options**: BF16/FP16, FP8/INT8, FP4/INT4
+- **Precision options**: BF16/FP16, FP8/INT8, FP4/INT4, and Ascend W8A8/W4A8 weight formats
 - **Draft KV cache**: Account for MTP/draft model KV layers
 - **Linear attention KV**: Include linear attention layer contributions
 - **Context presets**: Quick-select from 1K to 1M tokens

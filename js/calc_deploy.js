@@ -1,20 +1,19 @@
 var GPU_OPTIONS = [
-  { id: 'h100_80',  label: 'H100 80GiB',  vram: 80 * Math.pow(1024, 3) },
-  { id: 'h200_141', label: 'H200 141GiB', vram: 141 * Math.pow(1024, 3) },
-  { id: 'b200_180', label: 'B200 180GiB', vram: 180 * Math.pow(1024, 3) },
-  { id: 'b300_288', label: 'B300 288GiB', vram: 288 * Math.pow(1024, 3) },
-  { id: 'a100_80',  label: 'A100 80GiB',  vram: 80 * Math.pow(1024, 3) },
-  { id: 'a100_40',  label: 'A100 40GiB',  vram: 40 * Math.pow(1024, 3) },
-  { id: 'h100_40',  label: 'H100 40GiB',  vram: 40 * Math.pow(1024, 3) },
-  { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 48 * Math.pow(1024, 3) },
-  { id: 'l4_24',    label: 'L4 24GiB',    vram: 24 * Math.pow(1024, 3) },
-  { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 64 * Math.pow(1024, 3) },
-  { id: 'h20_141',        label: 'H20 141GiB',         vram: 141 * Math.pow(1024, 3) },
-  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 112 * Math.pow(1024, 3) },
-  { id: 'gb10_128',        label: 'GB10 128GiB',        vram: 128 * Math.pow(1024, 3) },
-  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 72 * Math.pow(1024, 3) },
-  { id: 'l20_48',          label: 'L20 48GiB',          vram: 48 * Math.pow(1024, 3) },
+  { id: 'b300_288', label: 'B300 288GB', vram: 288 * 1e9 },
+  { id: 'h20_141',        label: 'H20 141GB',         vram: 141 * 1e9 },
+  { id: 'h200_141',       label: 'H200 141GB',        vram: 141 * 1e9 },
+  { id: 'l20_48',         label: 'L20 48GB',          vram: 48 * 1e9 },
+  { id: 'ascend_910b_64', label: 'Ascend 910B 64GB', vram: 64 * 1e9 },
+  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GB', vram: 112 * 1e9 },
+  { id: 'gb10_128',        label: 'GB10 128GB',        vram: 128 * 1e9 },
+  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GB', vram: 72 * 1e9 },
 ];
+
+// vLLM deployment guardrails: reserve 10% of physical VRAM and a conservative
+// per-GPU CUDA Graph capture budget before deciding whether a deployment fits.
+var VLLM_GPU_MEMORY_UTILIZATION = 0.90;
+var VLLM_CUDA_GRAPH_OVERHEAD_GB = 5;
+var VLLM_CUDA_GRAPH_OVERHEAD_BYTES = VLLM_CUDA_GRAPH_OVERHEAD_GB * 1e9;
 
 var DEPLOY_BAR_HEX_MAP = {
   'attn':        '#4263eb',
@@ -184,7 +183,9 @@ function calcDeployUnified(model, opts) {
 
   var gpuOption = GPU_OPTIONS.find(function (g) { return g.id === opts.gpuId; }) || GPU_OPTIONS[0];
   var gpuVram = gpuOption.vram;
-  var gpuUsage = maxStageTotalPerGPU / gpuVram;
+  var gpuUsableVram = gpuVram * VLLM_GPU_MEMORY_UTILIZATION;
+  var gpuUsedWithOverhead = maxStageTotalPerGPU + VLLM_CUDA_GRAPH_OVERHEAD_BYTES;
+  var gpuUsage = gpuUsedWithOverhead / gpuUsableVram;
   var gpuFits = gpuUsage <= 1.0;
 
   var formulaTitle = model.label + ' per-GPU (TP=' + tp + ', PP=' + pp + ', EP=' + ep + (cp > 1 ? ', CP=' + cp : '') + ')';
@@ -207,6 +208,10 @@ function calcDeployUnified(model, opts) {
       gpuId: gpuOption.id,
       label: gpuOption.label,
       vram: gpuVram,
+      usableVram: gpuUsableVram,
+      fixedOverhead: VLLM_CUDA_GRAPH_OVERHEAD_BYTES,
+      usedVram: gpuUsedWithOverhead,
+      utilizationLimit: VLLM_GPU_MEMORY_UTILIZATION,
       usage: gpuUsage,
       fits: gpuFits,
     },
@@ -348,16 +353,16 @@ function getDeployDefaults(model) {
   var tp, gpu;
   if (totalB >= 400 || (isMoE && totalB >= 100)) {
     tp = 8;
-    gpu = 'h100_80';
+    gpu = 'b300_288';
   } else if (totalB >= 30 || h >= 4096) {
     tp = 4;
-    gpu = 'h100_80';
+    gpu = 'h200_141';
   } else if (totalB >= 7 || h >= 2048) {
     tp = 2;
-    gpu = 'a100_40';
+    gpu = 'l20_48';
   } else {
     tp = 1;
-    gpu = 'a100_40';
+    gpu = 'l20_48';
   }
 
   var ep = isMoE ? tp : 1;
