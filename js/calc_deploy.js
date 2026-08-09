@@ -2,6 +2,7 @@ var GPU_OPTIONS = [
   { id: 'h100_80',  label: 'H100 80GiB',  vram: 80 * Math.pow(1024, 3) },
   { id: 'h200_141', label: 'H200 141GiB', vram: 141 * Math.pow(1024, 3) },
   { id: 'b200_180', label: 'B200 180GiB', vram: 180 * Math.pow(1024, 3) },
+  { id: 'b300_288', label: 'B300 288GiB', vram: 288 * Math.pow(1024, 3) },
   { id: 'a100_80',  label: 'A100 80GiB',  vram: 80 * Math.pow(1024, 3) },
   { id: 'a100_40',  label: 'A100 40GiB',  vram: 40 * Math.pow(1024, 3) },
   { id: 'h100_40',  label: 'H100 40GiB',  vram: 40 * Math.pow(1024, 3) },
