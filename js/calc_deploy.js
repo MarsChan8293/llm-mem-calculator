@@ -7,6 +7,12 @@ var GPU_OPTIONS = [
   { id: 'h100_40',  label: 'H100 40GiB',  vram: 40 * Math.pow(1024, 3) },
   { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 48 * Math.pow(1024, 3) },
   { id: 'l4_24',    label: 'L4 24GiB',    vram: 24 * Math.pow(1024, 3) },
+  { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 64 * Math.pow(1024, 3) },
+  { id: 'h20_141',        label: 'H20 141GiB',         vram: 141 * Math.pow(1024, 3) },
+  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 112 * Math.pow(1024, 3) },
+  { id: 'gb10_128',        label: 'GB10 128GiB',        vram: 128 * Math.pow(1024, 3) },
+  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 72 * Math.pow(1024, 3) },
+  { id: 'l20_48',          label: 'L20 48GiB',          vram: 48 * Math.pow(1024, 3) },
 ];
 
 var DEPLOY_BAR_HEX_MAP = {

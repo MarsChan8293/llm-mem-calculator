@@ -348,6 +348,12 @@ var GPU_OPTIONS = [
   { id: 'b200_180', label: 'B200 180GiB', vram: 180 * 1024**3 },
   { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 48 * 1024**3 },
   { id: 'l4_24',    label: 'L4 24GiB',    vram: 24 * 1024**3 },
+  { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 64 * 1024**3 },
+  { id: 'h20_141',        label: 'H20 141GiB',         vram: 141 * 1024**3 },
+  { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 112 * 1024**3 },
+  { id: 'gb10_128',        label: 'GB10 128GiB',        vram: 128 * 1024**3 },
+  { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 72 * 1024**3 },
+  { id: 'l20_48',          label: 'L20 48GiB',          vram: 48 * 1024**3 },
 ];
 ```
 
@@ -763,6 +769,12 @@ const MODEL_DATA = {
     { id: 'h100_40',  label: 'H100 40GiB',  vram: 42949672960 },
     { id: 'l40s_48',  label: 'L40S 48GiB',  vram: 51539607552 },
     { id: 'l4_24',    label: 'L4 24GiB',    vram: 25769803776 },
+    { id: 'ascend_910b_64', label: 'Ascend 910B 64GiB', vram: 68719476736 },
+    { id: 'h20_141', label: 'H20 141GiB', vram: 151393783808 },
+    { id: 'ascend_950pr_112', label: 'Ascend 950PR 112GiB', vram: 120259084288 },
+    { id: 'gb10_128', label: 'GB10 128GiB', vram: 137438953472 },
+    { id: 'rtx_pro_5000_72', label: 'RTX PRO 5000 72GiB', vram: 77309411328 },
+    { id: 'l20_48', label: 'L20 48GiB', vram: 51539607552 },
   ],
   
   // 每个 model 新增 deploy_defaults（可选，覆盖通用默认值）
