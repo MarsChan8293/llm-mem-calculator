@@ -76,6 +76,9 @@ function calcDeployUnified(model, opts) {
   var dp = opts.dp || 1;
   var cp = opts.cp || 1;
   var idxTp = opts.idxTp || tp;
+  // MLA stores a shared latent KV representation. It is replicated across
+  // tensor-parallel ranks and only partitioned along the context dimension.
+  var kvTp = modelUsesMlaKv(model) ? 1 : tp;
 
   var f = model.fields;
   var wf = model.weight_fields || {};
@@ -134,7 +137,7 @@ function calcDeployUnified(model, opts) {
 
     var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU;
 
-    var sKvPerGPU = stageLayerCount * kvPerLayerSingle * opts.batch / (tp * cp);
+    var sKvPerGPU = stageLayerCount * kvPerLayerSingle * opts.batch / (kvTp * cp);
     var sIdxPerGPU = (stageLayerCount / L) * kvResult.idxBytes * opts.batch / (idxTp * cp);
 
     var sTotalPerGPU = sWeightPerGPU + sKvPerGPU + sIdxPerGPU;
@@ -197,6 +200,7 @@ function calcDeployUnified(model, opts) {
   var batch = Math.max(1, opts.batch || 1);
   var maxConcurrency = null;
   var kvSpacePerGPU = null;
+  var concurrencyBottleneck = null;
   stages.forEach(function (stage) {
     var stageKvPerSequence = (stage.kvPerGPU + stage.idxPerGPU) / batch;
     if (stageKvPerSequence <= 0) return;
@@ -205,9 +209,16 @@ function calcDeployUnified(model, opts) {
       ? stageKvBudget
       : Math.min(kvSpacePerGPU, stageKvBudget);
     var stageMaxConcurrency = Math.floor(stageKvBudget / stageKvPerSequence);
-    maxConcurrency = maxConcurrency === null
-      ? stageMaxConcurrency
-      : Math.min(maxConcurrency, stageMaxConcurrency);
+    if (maxConcurrency === null || stageMaxConcurrency < maxConcurrency) {
+      maxConcurrency = stageMaxConcurrency;
+      concurrencyBottleneck = {
+        stageIndex: stage.stageIndex,
+        layerRange: stage.layerRange,
+        kvBudget: stageKvBudget,
+        kvPerSequence: stageKvPerSequence,
+        exactConcurrency: stageKvBudget / stageKvPerSequence,
+      };
+    }
   });
   var bottleneckKvPerSequence = (bottleneckStage.kvPerGPU + bottleneckStage.idxPerGPU) / batch;
 
@@ -222,8 +233,12 @@ function calcDeployUnified(model, opts) {
     weightPerGPU: maxStageWeightPerGPU,
     kvPerGPU: bottleneckStage.kvPerGPU + bottleneckStage.idxPerGPU,
     kvPerGPUPerSequence: bottleneckKvPerSequence,
+    kvTpSplit: kvTp,
+    kvCpSplit: cp,
+    idxTpSplit: idxTp,
     kvSpacePerGPU: kvSpacePerGPU === null ? 0 : kvSpacePerGPU,
     maxConcurrency: maxConcurrency,
+    concurrencyBottleneck: concurrencyBottleneck,
     totalPerGPU: maxStageTotalPerGPU,
     totalGPUs: tp * pp * dp,
     weightBreakdown: weightBreakdown,
@@ -252,6 +267,8 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   var tp = opts.tp || 1;
   var ep = opts.ep || 1;
   var idxTp = opts.idxTp || tp;
+  var cp = opts.cp || 1;
+  var kvTp = modelUsesMlaKv(model) ? 1 : tp;
   var wf = model.weight_fields || {};
   var f = model.fields;
   var L = f.num_hidden_layers;
@@ -339,28 +356,32 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   });
 
   formulas.push({
-    name: 'KV/tp',
-    tip: 'KV cache per layer, split by TP, times batch.',
-    expr: 'KV\u00d7L\u00d7B/tp',
-    values: { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, tp: tp },
-    resultValue: kvPerLayerSingle * L * batch / tp,
-    bar: [{ type: 'kv', bytes: kvPerLayerSingle * L * batch / tp }],
-    ibarVal: fmtWBytes(kvPerLayerSingle * L * batch / tp),
+    name: modelUsesMlaKv(model) ? 'KV/cp' : 'KV/(tp\u00d7cp)',
+    tip: modelUsesMlaKv(model)
+      ? 'MLA KV is replicated across TP ranks and split along the context dimension by CP.'
+      : 'KV cache per layer, split by TP and CP, times batch.',
+    expr: modelUsesMlaKv(model) ? 'KV\u00d7L\u00d7B/cp' : 'KV\u00d7L\u00d7B/(tp\u00d7cp)',
+    values: modelUsesMlaKv(model)
+      ? { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, cp: cp }
+      : { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, tp: tp, cp: cp },
+    resultValue: kvPerLayerSingle * L * batch / (kvTp * cp),
+    bar: [{ type: 'kv', bytes: kvPerLayerSingle * L * batch / (kvTp * cp) }],
+    ibarVal: fmtWBytes(kvPerLayerSingle * L * batch / (kvTp * cp)),
   });
 
   if (idxPerLayerSingle > 0) {
-    var idxExpr = idxL !== L ? 'Idx\u00d7L_idx\u00d7B/tp_idx' : 'Idx\u00d7L\u00d7B/tp_idx';
+    var idxExpr = 'Idx\u00d7' + (idxL !== L ? 'L_idx' : 'L') + '\u00d7B/(tp_idx\u00d7cp)';
     var idxValues = idxL !== L
-      ? { Idx: fmtWBytes(idxPerLayerSingle), L_idx: idxL, B: batch, tp_idx: idxTp }
-      : { Idx: fmtWBytes(idxPerLayerSingle), L: L, B: batch, tp_idx: idxTp };
+      ? { Idx: fmtWBytes(idxPerLayerSingle), L_idx: idxL, B: batch, tp_idx: idxTp, cp: cp }
+      : { Idx: fmtWBytes(idxPerLayerSingle), L: L, B: batch, tp_idx: idxTp, cp: cp };
     formulas.push({
       name: 'Idx/tp_idx',
       tip: idxL !== L ? 'Indexer KV cache per indexer layer, split by Indexer TP. With IndexShare, only ' + idxL + ' of ' + L + ' layers have indexer.' : 'Indexer KV cache per layer, split by Indexer TP, times batch.',
       expr: idxExpr,
       values: idxValues,
-      resultValue: idxPerLayerSingle * idxL * batch / idxTp,
-      bar: [{ type: 'idx', bytes: idxPerLayerSingle * idxL * batch / idxTp }],
-      ibarVal: fmtWBytes(idxPerLayerSingle * idxL * batch / idxTp),
+      resultValue: idxPerLayerSingle * idxL * batch / (idxTp * cp),
+      bar: [{ type: 'idx', bytes: idxPerLayerSingle * idxL * batch / (idxTp * cp) }],
+      ibarVal: fmtWBytes(idxPerLayerSingle * idxL * batch / (idxTp * cp)),
     });
   }
 
@@ -401,6 +422,12 @@ function getDeployDefaults(model) {
 function modelHasIndexer(model) {
   var formula = model.formula;
   return formula === 'deepseek_v4_hybrid' || formula === 'dsa_mla' || formula === 'msa_gqa';
+}
+
+function modelUsesMlaKv(model) {
+  // DeepSeek V4's hybrid sliding/compressed cache is still a latent KV
+  // payload: it is replicated across TP ranks and only sharded by CP.
+  return ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'kda_gated_mla'].includes(model.formula);
 }
 
 function modelSupportsAbsorption(model) {

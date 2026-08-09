@@ -42,7 +42,7 @@ Deploy Tab 回答以下问题：
 
 | 策略 | 切分对象 | 切分方式 | 对 per-GPU 的影响 |
 |---|---|---|---|
-| **TP** | Attention 权重 + Dense/Shared Expert FFN 权重 + KV Cache | 按头/列/行切分 | weight ÷ tp, kv ÷ tp |
+| **TP** | Attention/FFN 权重；普通 GQA KV | 按头/列/行切分 | weight ÷ tp, GQA kv ÷ tp |
 | **PP** | 层 | 按 stage 分配层 | 只计算本 stage 的层 |
 | **EP** | Routed Expert FFN 权重 | 按 expert ID 分配 | (n_routed / ep) × per_expert |
 | **DP** | 无切分（全复制） | 每卡完整副本 | per-gpu 不变，总卡数 × dp |
@@ -61,8 +61,8 @@ weight_per_gpu =
 
 kv_per_gpu =
   layers_in_this_pp_stage × (
-    kv_per_layer / tp                   // KV Cache 按 TP 切
-    + idx_per_layer / tp_idx            // Indexer 可能按不同 TP 切
+    kv_per_layer / kv_tp / cp           // MLA: kv_tp=1；GQA: kv_tp=tp
+    + idx_per_layer / tp_idx / cp       // Indexer 单独由 tp_idx 控制
   )
 
 mem_per_gpu = weight_per_gpu + kv_per_gpu
@@ -122,21 +122,24 @@ PP=2 时 stage 0 会包含前3层 dense + 部分 MoE 层，stage 1 只有 MoE �
 
 ### 3.5 KV Cache 在并行下的切分
 
-**Standard GQA**：KV cache 按 TP 切，`kv_per_layer / tp`。
+**Standard GQA**：KV cache 按 TP 切，并按 CP 沿上下文维度切分，`kv_per_layer / tp / cp`。
 
-**MLA**：KV cache 存储 latent (d_c + d_r)，按 TP 切分时每卡存 `n_q/tp` 份 latent。
-简化为 `kv_per_layer / tp`。
+**MLA**：KV cache 存储 latent `(d_c + d_r)`，不能按 TP rank 切分；每个 TP rank
+都需要完整 latent KV。只有 CP 沿上下文长度维度切分，因此是
+`kv_per_layer / cp`，而不是 `/tp`。
 
-**DeepSeek V4 Hybrid**：这更复杂——
-- Sliding window KV：所有层参与，`sliding_kv / tp`
-- Compressed KV：ratio>0 的层，`compressed_kv / tp`
-- Indexer：**通常 TP=1 运行**（indexer 不按 TP 切），所以 `idx_bytes` **不除以 tp**
+**DeepSeek V4 Hybrid（也归入 MLA KV）**：它同时包含 sliding-window 和 compressed KV，
+但两者都属于 V4 的 latent KV payload，**不按 TP rank 切分**，只按 CP 沿上下文维度切分：
+`(sliding_kv + compressed_kv) / cp`。
+Indexer 是独立的稀疏索引分支，按 `tp_idx × cp` 计算；实际部署若 Indexer 使用 TP=1，
+将 `tp_idx` 设为 1 即可。
 
 **这是一个关键的精确度问题**。Indexer 在实际部署中通常 TP=1，
 意味着 indexer 的 KV cache 是全量复制到每张卡，而非按 TP 切分。
 
 V1 处理方式：
-- 默认 `idx_per_layer / tp`（与 KV cache 统一）
+- MLA 与 DeepSeek V4 Hybrid 主 KV 使用 `kv_per_layer / cp`，普通 GQA 使用 `kv_per_layer / tp / cp`
+- Indexer 使用独立的 `idx_per_layer / tp_idx / cp`
 - 增加 "Indexer TP" 独立控件，默认 = TP，用户可手动设为 1
 - 对于 deepseek_v4_hybrid / dsa_mla / msa_gqa 模型，显示提示：
   "Indexer 通常以 TP=1 运行，请根据实际部署调整"
@@ -553,23 +556,23 @@ function calcWeightPerGPU(weightResult, tp, pp, ep, model) {
 ### 6.4 KV Cache 切分核心逻辑
 
 ```javascript
-function calcKVPerGPU(kvResult, tp, idxTp, pp, batch) {
+function calcKVPerGPU(kvResult, tp, idxTp, pp, cp, batch, isMla) {
   const totalLayers = /* from model */;
   const layersPerStage = Math.ceil(totalLayers / pp);
   
-  // Per-GPU KV = (本stage的layers) × (kv_per_layer / tp) × batch
-  // 简化：假设均匀分布
+  // MLA KV cannot be split by TP. Standard GQA uses TP sharding.
+  const kvTp = isMla ? 1 : tp;
   const kvPerLayer = kvResult.kvBytes / totalLayers;
   const idxPerLayer = kvResult.idxBytes / totalLayers;
   
-  const kvPerGPU = layersPerStage * (kvPerLayer / tp + idxPerLayer / idxTp) * batch;
+  const kvPerGPU = layersPerStage * (kvPerLayer / kvTp + idxPerLayer / idxTp) * batch / cp;
   // 注意：kvResult.kvBytes 已经是单 seq 的量，需要 × batch
   
   return {
     kvPerGPU: kvPerGPU,
     kvBreakdown: {
-      kvPerGPU: layersPerStage * kvPerLayer / tp * batch,
-      idxPerGPU: layersPerStage * idxPerLayer / idxTp * batch,
+      kvPerGPU: layersPerStage * kvPerLayer / kvTp * batch / cp,
+      idxPerGPU: layersPerStage * idxPerLayer / idxTp * batch / cp,
     },
   };
 }
@@ -740,9 +743,9 @@ Weight_total  = Attn/tp + Shared/tp + Expert/ep + Embed/tp  = 37.2 GiB
 
 ── Per-GPU KV Cache ──
 
-KV/tp         = L × (KV_sw + KV_cmp) / 8 × T × p × B      = 0.8 GiB
+KV/cp         = L × (KV_sw + KV_cmp) / cp × T × p × B      = 0.8 GiB
 Idx/tp_idx    = L_4 × ⌊T/4⌋ × d_idx × p_idx × B / 8      = 0.2 GiB
-KV_total      = KV/tp + Idx/tp_idx                           = 1.0 GB
+KV_total      = KV/cp + Idx/tp_idx                           = 1.0 GB
 
 ── Total ──
 
@@ -887,7 +890,7 @@ Phase 4: Disaggregated 模式
 **验证方式**：
 - 对比公开部署文档中的 per-GPU 显存数字
 - 权重切分结果 × 精度 应与 Weights tab 总量 / 并行度 一致（误差 <5%）
-- KV 切分结果应与 KV Cache tab 总量 / TP 一致
+- 普通 GQA KV 切分结果应与 KV Cache tab 总量 / TP 一致；MLA KV 不除以 TP，只有 CP 切分
 
 **完成标准**：
 - 4 个典型模型的 per-GPU 计算结果合理

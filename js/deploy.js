@@ -41,8 +41,13 @@ var $decodeEpItem = document.getElementById('decodeEpItem');
 var $absorptionToggle = document.getElementById('absorptionToggle');
 var $absorptionField = document.getElementById('absorptionField');
 var $gpuSelect = document.getElementById('gpuSelect');
+var $resultEyebrow = document.getElementById('resultEyebrow');
+var $maxConcurrencyHero = document.getElementById('maxConcurrencyHero');
+var $concurrencySummary = document.getElementById('concurrencySummary');
 var $totalPerGpu = document.getElementById('totalPerGpu');
 var $totalUnit = document.getElementById('totalUnit');
+var $footprintNote = document.getElementById('footprintNote');
+var $capacityFlowSection = document.getElementById('capacityFlowSection');
 var $ibarSection = document.getElementById('ibarSection');
 var $gpuFitSection = document.getElementById('gpuFitSection');
 var $metricsCompact = document.getElementById('metricsCompact');
@@ -340,6 +345,24 @@ function formatConcurrency(value) {
   return value === null || value === undefined ? '\u2014' : value.toLocaleString('en-US');
 }
 
+function formatDeploymentGpuCount(totalGPUs) {
+  if (typeof totalGPUs === 'number') return fmtNum(totalGPUs) + ' GPUs';
+  if (totalGPUs && typeof totalGPUs.prefill === 'number' && typeof totalGPUs.decode === 'number') {
+    return fmtNum(totalGPUs.prefill + totalGPUs.decode) + ' GPUs';
+  }
+  return '\u2014 GPUs';
+}
+
+function formatContext(value) {
+  if (value >= 1048576 && value % 1048576 === 0) return (value / 1048576) + 'M';
+  if (value >= 1024 && value % 1024 === 0) return (value / 1024) + 'K';
+  return fmtNum(value);
+}
+
+function formatGb(bytes, digits) {
+  return (bytes / 1e9).toFixed(digits === undefined ? 2 : digits);
+}
+
 function fmtNum(n) { return n.toLocaleString('en-US'); }
 
 function fmtWNum(n) {
@@ -382,32 +405,98 @@ function renderIbar(segments, maxBytes) {
   return html;
 }
 
-function renderGpuFit(fit) {
-  var pct = (fit.usage * 100).toFixed(1);
-  var status, statusIcon, barColor;
-  if (fit.usage < 0.7) {
-    status = 'ok';
-    statusIcon = '\u2705';
-    barColor = '#40c057';
-  } else if (fit.usage < 0.9) {
-    status = 'warn';
-    statusIcon = '\u26a0\ufe0f';
-    barColor = '#f59e0b';
-  } else {
-    status = 'oom';
-    statusIcon = '\u274c';
-    barColor = '#e03131';
+function renderCapacityFlow(result, opts, label) {
+  var fit = result.gpuFit;
+  var bottleneck = result.concurrencyBottleneck;
+  var runtimeBudget = Math.max(0, fit.usableVram - fit.fixedOverhead);
+  var limitingWeight = result.weightPerGPU;
+  var kvBudget = result.kvSpacePerGPU;
+  var kvPerSequence = result.kvPerGPUPerSequence;
+  var exactConcurrency = result.maxConcurrency;
+  var stageLabel = '';
+
+  if (bottleneck) {
+    kvBudget = bottleneck.kvBudget;
+    kvPerSequence = bottleneck.kvPerSequence;
+    exactConcurrency = bottleneck.exactConcurrency;
+    var limitingStage = result.stages.find(function (stage) {
+      return stage.stageIndex === bottleneck.stageIndex;
+    });
+    if (limitingStage) limitingWeight = limitingStage.weightPerGPU;
+    if (result.stages.length > 1) {
+      stageLabel = 'Stage ' + bottleneck.stageIndex + ' · ' + bottleneck.layerRange;
+    }
   }
-  var usedGB = (fit.usedVram / 1e9).toFixed(2);
-  var usableGB = (fit.usableVram / 1e9).toFixed(2);
-  var totalGB = (fit.vram / 1e9).toFixed(2);
-  var overheadGB = (fit.fixedOverhead / 1e9).toFixed(2);
-  var html = '<div class="gpu-fit-card ' + status + '">';
-  html += '<div class="gpu-fit-header">' + fit.label + '</div>';
-  html += '<div class="gpu-fit-bar-wrap"><div class="gpu-fit-bar" style="width:' + Math.min(100, pct) + '%;background:' + barColor + '"></div></div>';
-  html += '<div class="gpu-fit-stats">' + usedGB + ' / ' + usableGB + ' GB usable ' + statusIcon + ' ' + pct + '%</div>';
-  html += '<div class="gpu-fit-note">' + totalGB + ' GB × ' + (fit.utilizationLimit * 100).toFixed(0) + '% − ' + overheadGB + ' GB CUDA Graph reserve</div>';
+
+  var headroom = Math.max(0, fit.vram - fit.usableVram);
+  var physical = Math.max(1, fit.vram);
+  var reservePct = fit.fixedOverhead / physical * 100;
+  var weightPct = Math.min(limitingWeight, runtimeBudget) / physical * 100;
+  var kvPoolPct = kvBudget / physical * 100;
+  var headroomPct = headroom / physical * 100;
+  var currentKv = kvPerSequence * Math.max(1, opts.batch || 1);
+  var currentKvPct = kvBudget > 0 ? Math.min(100, currentKv / kvBudget * 100) : 100;
+  var idxParallelNote = result.kvBreakdown && result.kvBreakdown.idxPerGPU > 0
+    ? ' Indexer KV uses TP_idx=' + result.idxTpSplit + ' and CP=' + result.kvCpSplit + '.'
+    : '';
+  var kvParallelNote = result.kvTpSplit === 1
+    ? 'MLA KV is replicated across TP ranks and split only by CP=' + result.kvCpSplit + '.' + idxParallelNote
+    : 'KV is split across TP=' + result.kvTpSplit + ' and CP=' + result.kvCpSplit + '.' + idxParallelNote;
+  var weightFitsBudget = limitingWeight <= runtimeBudget;
+  var isWithinCapacity = weightFitsBudget && result.maxConcurrency !== null && (opts.batch || 1) <= result.maxConcurrency;
+  var statusClass = isWithinCapacity ? 'capacity-ok' : 'capacity-over';
+  var statusText = !weightFitsBudget
+    ? 'Weights exceed safe runtime budget'
+    : (isWithinCapacity
+      ? 'Selected ' + fmtNum(opts.batch || 1) + ' / ' + formatConcurrency(result.maxConcurrency) + ' sequences'
+      : 'Selected batch exceeds safe capacity');
+  var labelHtml = label ? '<span class="capacity-cluster-label">' + label + '</span>' : '';
+  var stageHtml = stageLabel ? '<span class="capacity-stage-label">' + stageLabel + ' limits concurrency</span>' : '';
+  var kvExplanation = weightFitsBudget
+    ? 'Safe budget minus per-GPU weights. ' + stageHtml
+    : 'No VRAM remains for KV Cache. Weights exceed the safe budget by ' + formatGb(limitingWeight - runtimeBudget, 2) + ' GB.';
+
+  var html = '<section class="capacity-calculation' + (label ? ' capacity-calculation-compact' : '') + '">';
+  html += '<div class="capacity-section-head"><div>' + labelHtml + '<h2>How the KV Cache budget becomes concurrency</h2></div><div class="capacity-status ' + statusClass + '"><span></span>' + statusText + '</div></div>';
+
+  html += '<div class="capacity-map" aria-label="GPU memory capacity composition">';
+  html += '<div class="capacity-segment capacity-weight" style="width:' + Math.max(0, weightPct) + '%" data-label="Weights"></div>';
+  html += '<div class="capacity-segment capacity-kv" style="width:' + Math.max(0, kvPoolPct) + '%" data-label="KV pool"><span class="capacity-kv-current" style="width:' + currentKvPct + '%"></span></div>';
+  html += '<div class="capacity-segment capacity-reserve" style="width:' + Math.max(0, reservePct) + '%" data-label="Reserve"></div>';
+  html += '<div class="capacity-segment capacity-headroom" style="width:' + Math.max(0, headroomPct) + '%" data-label="Headroom"></div>';
   html += '</div>';
+  html += '<div class="capacity-map-legend">';
+  html += '<span><i class="legend-weight"></i>Weights ' + formatGb(limitingWeight, 2) + ' GB</span>';
+  html += '<span><i class="legend-kv"></i>KV Cache pool ' + formatGb(kvBudget, 2) + ' GB</span>';
+  html += '<span><i class="legend-reserve"></i>Runtime reserve ' + formatGb(fit.fixedOverhead, 0) + ' GB</span>';
+  html += '<span><i class="legend-headroom"></i>vLLM headroom ' + formatGb(headroom, 1) + ' GB</span>';
+  html += '</div>';
+
+  html += '<div class="calculation-steps">';
+  html += '<div class="calculation-step">';
+  html += '<div class="step-top"><span class="step-number">01</span><span class="step-label">Safe runtime budget</span></div>';
+  html += '<div class="step-equation"><span>' + formatGb(fit.vram, 0) + '</span><em>×</em><span>' + (fit.utilizationLimit * 100).toFixed(0) + '%</span><em>−</em><span>' + formatGb(fit.fixedOverhead, 0) + '</span></div>';
+  html += '<div class="step-result"><strong>' + formatGb(runtimeBudget, 2) + '</strong><span>GB</span></div>';
+  html += '<p>' + fit.label + ' after vLLM headroom and CUDA Graph reserve.</p>';
+  html += '</div>';
+
+  html += '<div class="step-connector" aria-hidden="true">−</div>';
+  html += '<div class="calculation-step calculation-step-kv">';
+  html += '<div class="step-top"><span class="step-number">02</span><span class="step-label">KV Cache remaining</span></div>';
+  html += '<div class="step-equation">' + (!weightFitsBudget ? '<span>max(0,</span>' : '') + '<span>' + formatGb(runtimeBudget, 2) + '</span><em>−</em><span>' + formatGb(limitingWeight, 2) + '</span>' + (!weightFitsBudget ? '<span>)</span>' : '') + '</div>';
+  html += '<div class="step-result"><strong>' + formatGb(kvBudget, 5) + '</strong><span>GB</span></div>';
+  html += '<p>' + kvExplanation + '</p>';
+  html += '</div>';
+
+  html += '<div class="step-connector" aria-hidden="true">÷</div>';
+  html += '<div class="calculation-step calculation-step-result">';
+  html += '<div class="step-top"><span class="step-number">03</span><span class="step-label">Concurrent sequences</span></div>';
+  html += '<div class="step-equation"><span>' + formatGb(kvBudget, 5) + '</span><em>÷</em><span>' + formatGb(kvPerSequence, 5) + '</span></div>';
+  html += '<div class="step-result"><strong>' + formatConcurrency(result.maxConcurrency) + '</strong><span>seqs</span></div>';
+  html += '<p>Each sequence uses ' + formatGb(kvPerSequence, 5) + ' GB per GPU at ' + formatContext(opts.tokens) + ' context. ' + kvParallelNote + ' Floor(' + (typeof exactConcurrency === 'number' ? exactConcurrency.toFixed(2) : '\u2014') + ') for a safe limit.</p>';
+  html += '</div>';
+  html += '</div>';
+  html += '</section>';
   return html;
 }
 
@@ -504,6 +593,8 @@ function renderTopology(model, result, opts) {
   var expertsPerGPU = nRouted > 0 ? Math.ceil(nRouted / ep) : 0;
   var p = TOPO_PALETTE;
   var isDisagg = opts._disaggLabel;
+  var mlaKv = modelUsesMlaKv(model);
+  var kvShardHint = mlaKv ? 'Replicated across TP; CP=' + cp : 'TP split (by heads)';
 
   var html = '';
   if (isDisagg) html += '<div class="topo-disagg-label">' + isDisagg + '</div>';
@@ -534,7 +625,7 @@ function renderTopology(model, result, opts) {
     html += '</div>';
 
     html += '<div class="row">';
-    html += '<div class="row-label">KV Cache <span class="row-hint">TP split (by heads)</span> <span class="row-gb">' + topoGb(kb.kvPerGPU) + '</span></div>';
+    html += '<div class="row-label">KV Cache <span class="row-hint">' + kvShardHint + '</span> <span class="row-gb">' + topoGb(kb.kvPerGPU) + '</span></div>';
     html += '<div class="kv-bar" style="height:16px">';
     for (var g = 0; g < tp; g++) {
       html += '<div class="kv-shard" style="background:' + p.kv + '" data-tooltip="GPU ' + g + ': KV shard ' + (g + 1) + '/' + tp + '">' + g + '</div>';
@@ -624,7 +715,7 @@ function renderTopology(model, result, opts) {
     html += '<div class="topo-note-card"><span class="topo-note-badge topo-note-cp">CP=' + cp + '</span>CP&gt;1 divides KV along sequence-length dimension across CP ranks.</div>';
   }
 
-  html += '<div class="topo-note">Showing bottleneck stage per-GPU weight partitioning.' + (isMoE ? ' EP=' + ep + ' gives each GPU ' + expertsPerGPU + '/' + nRouted + ' experts.' : '') + ' TP=' + tp + ' splits attention' + (isMoE ? ', shared expert' : '') + ', and embedding across ' + tp + ' ranks.</div>';
+  html += '<div class="topo-note">Showing bottleneck stage per-GPU weight partitioning.' + (isMoE ? ' EP=' + ep + ' gives each GPU ' + expertsPerGPU + '/' + nRouted + ' experts.' : '') + ' TP=' + tp + ' splits attention' + (isMoE ? ', shared expert' : '') + ', and embedding across ' + tp + ' ranks.' + (mlaKv ? ' MLA KV is replicated across TP and split by CP=' + cp + '.' : '') + '</div>';
 
   return html;
 }
@@ -685,8 +776,13 @@ function drawGather() {
 function calculate() {
   var model = getModel();
   if (!model) {
+    $resultEyebrow.textContent = 'SAFE CAPACITY · PER GPU';
+    $maxConcurrencyHero.textContent = '\u2014';
+    $concurrencySummary.textContent = 'Select a model and GPU to calculate serving capacity.';
     $totalPerGpu.textContent = '\u2014';
     $totalUnit.textContent = getUnitLabel();
+    $footprintNote.textContent = 'Weights + selected active sequences';
+    $capacityFlowSection.innerHTML = '';
     $ibarSection.innerHTML = '';
     $gpuFitSection.innerHTML = '';
     $metricsCompact.innerHTML = '';
@@ -709,6 +805,7 @@ function calculate() {
     tp: parseInt($tpInput.value) || 1,
     pp: parseInt($ppInput.value) || 1,
     ep: parseInt($epInput.value) || 1,
+    cp: parseInt($cpInput.value) || 1,
     dp: parseInt($dpInput.value) || 1,
     idxTp: parseInt($idxTpInput.value) || parseInt($tpInput.value) || 1,
     includeDraft: $draftToggle.checked,
@@ -745,28 +842,25 @@ function calculate() {
 }
 
 function renderUnified(result, model, opts) {
+  $resultEyebrow.textContent = result.gpuFit.label + ' * ' + formatDeploymentGpuCount(result.totalGPUs);
+  $maxConcurrencyHero.textContent = formatConcurrency(result.maxConcurrency);
+  $concurrencySummary.innerHTML = 'At <strong>' + formatContext(opts.tokens) + '</strong> context with <strong>' + kvPrecValue.toUpperCase().replace('_INT8', '') + ' KV</strong> · conservative floor across the deployment.';
   $totalPerGpu.textContent = formatTotal(result.totalPerGPU);
   $totalUnit.textContent = getUnitLabel();
+  $footprintNote.textContent = 'Weights + ' + fmtNum(opts.batch) + ' active sequence' + (opts.batch === 1 ? '' : 's');
+
+  $capacityFlowSection.innerHTML = renderCapacityFlow(result, opts);
 
   var maxIbar = result.totalPerGPU;
-  $ibarSection.innerHTML = renderIbar(result.ibarSegments, maxIbar);
+  $ibarSection.innerHTML = '<div class="section-inline-title">Current per-GPU allocation</div>' + renderIbar(result.ibarSegments, maxIbar);
 
-  $gpuFitSection.innerHTML = renderGpuFit(result.gpuFit);
+  $gpuFitSection.innerHTML = '';
 
-  var wb = result.weightBreakdown;
-  var kb = result.kvBreakdown;
   var metricsHtml = '';
-  metricsHtml += '<span class="metric-item">Weights <span class="metric-val">' + formatMetric(result.weightPerGPU) + '</span></span>';
-  metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">KV <span class="metric-val">' + formatMetric(result.kvPerGPU) + '</span></span>';
-  metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">KV / seq <span class="metric-val">' + formatMetric(result.kvPerGPUPerSequence) + '</span></span>';
-  metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">KV space <span class="metric-val">' + formatMetric(result.kvSpacePerGPU) + '</span></span>';
-  metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">Max concurrency <span class="metric-val">' + formatConcurrency(result.maxConcurrency) + '</span></span>';
-  metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">GPUs <span class="metric-val">' + result.totalGPUs + '</span></span>';
+  metricsHtml += '<span class="metric-item"><span class="metric-label">Weight footprint</span><span class="metric-val">' + formatMetric(result.weightPerGPU) + '</span><span class="metric-help">per bottleneck GPU</span></span>';
+  metricsHtml += '<span class="metric-item"><span class="metric-label">KV per sequence</span><span class="metric-val">' + formatMetric(result.concurrencyBottleneck ? result.concurrencyBottleneck.kvPerSequence : result.kvPerGPUPerSequence) + '</span><span class="metric-help">at ' + formatContext(opts.tokens) + ' context</span></span>';
+  metricsHtml += '<span class="metric-item"><span class="metric-label">Selected KV load</span><span class="metric-val">' + formatMetric(result.kvPerGPU) + '</span><span class="metric-help">batch ' + fmtNum(opts.batch) + '</span></span>';
+  metricsHtml += '<span class="metric-item"><span class="metric-label">Deployment size</span><span class="metric-val">' + result.totalGPUs + ' GPUs</span><span class="metric-help">TP ' + opts.tp + ' · PP ' + opts.pp + ' · DP ' + opts.dp + '</span></span>';
   $metricsCompact.innerHTML = metricsHtml;
 
   if (result.formulas && result.formulas.length > 0) {
@@ -798,7 +892,13 @@ function renderUnified(result, model, opts) {
 
   $breakdownGrid.innerHTML = buildBreakdownRows(result);
 
-  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. KV space is the remaining per-GPU capacity for cache after weights, the ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% vLLM headroom, and the ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB reserve. Max concurrency is the conservative floor across pipeline stages for the selected context length. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
+  var idxSplitNote = result.kvBreakdown && result.kvBreakdown.idxPerGPU > 0
+    ? ' Indexer KV uses TP_idx=' + result.idxTpSplit + ' and CP=' + result.kvCpSplit + '.'
+    : '';
+  var kvSplitNote = result.kvTpSplit === 1
+    ? 'MLA KV is replicated across TP and split only by CP=' + result.kvCpSplit + '.' + idxSplitNote
+    : 'KV is split across TP=' + result.kvTpSplit + ' and CP=' + result.kvCpSplit + '.' + idxSplitNote;
+  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. ' + kvSplitNote + ' KV space is the remaining per-GPU capacity for cache after weights, the ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% vLLM headroom, and the ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB reserve. Max concurrency is the conservative floor across pipeline stages for the selected context length. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }
@@ -807,26 +907,22 @@ function renderDisaggregated(result, model, opts) {
   var pre = result.prefill;
   var dec = result.decode;
 
-  $totalPerGpu.textContent = '\u2014';
-  $totalUnit.textContent = '';
+  $resultEyebrow.textContent = result.prefill.gpuFit.label + ' * ' + formatDeploymentGpuCount(result.totalGPUs);
+  $maxConcurrencyHero.textContent = formatConcurrency(result.maxConcurrency);
+  $concurrencySummary.innerHTML = 'End-to-end limit at <strong>' + formatContext(opts.tokens) + '</strong> context · the smaller safe capacity of prefill and decode.';
+  $totalPerGpu.textContent = formatTotal(Math.max(pre.totalPerGPU, dec.totalPerGPU));
+  $totalUnit.textContent = 'GB';
+  $footprintNote.textContent = 'Larger of prefill / decode per-GPU allocations';
   $ibarSection.innerHTML = '';
 
-  var html = '<div class="disagg-container">';
-    html += '<div class="disagg-panel"><div class="disagg-label">Prefill (TP=' + opts.prefill.tp + ', PP=' + opts.prefill.pp + ', EP=' + opts.prefill.ep + ')</div>';
-  html += '<div class="disagg-total">' + formatMetric(pre.totalPerGPU) + '</div>';
-  html += renderIbar(pre.ibarSegments, pre.totalPerGPU);
-  html += renderGpuFit(pre.gpuFit);
-  html += '<div class="disagg-metrics">Weights: ' + formatMetric(pre.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(pre.kvPerGPU) + ' \u00b7 KV/seq: ' + formatMetric(pre.kvPerGPUPerSequence) + ' \u00b7 KV space: ' + formatMetric(pre.kvSpacePerGPU) + ' \u00b7 Max concurrency: ' + formatConcurrency(pre.maxConcurrency) + ' \u00b7 GPUs: ' + pre.totalGPUs + '</div>';
-  html += '</div>';
-    html += '<div class="disagg-panel"><div class="disagg-label">Decode (TP=' + opts.decode.tp + ', PP=' + opts.decode.pp + ', EP=' + opts.decode.ep + ')</div>';
-  html += '<div class="disagg-total">' + formatMetric(dec.totalPerGPU) + '</div>';
-  html += renderIbar(dec.ibarSegments, dec.totalPerGPU);
-  html += renderGpuFit(dec.gpuFit);
-  html += '<div class="disagg-metrics">Weights: ' + formatMetric(dec.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(dec.kvPerGPU) + ' \u00b7 KV/seq: ' + formatMetric(dec.kvPerGPUPerSequence) + ' \u00b7 KV space: ' + formatMetric(dec.kvSpacePerGPU) + ' \u00b7 Max concurrency: ' + formatConcurrency(dec.maxConcurrency) + ' \u00b7 GPUs: ' + dec.totalGPUs + '</div>';
-  html += '</div>';
-  html += '</div>';
+  var preCapacityOpts = Object.assign({}, opts, opts.prefill);
+  var decCapacityOpts = Object.assign({}, opts, opts.decode);
+  $capacityFlowSection.innerHTML = '<div class="capacity-disagg-grid">' +
+    renderCapacityFlow(pre, preCapacityOpts, 'PREFILL') +
+    renderCapacityFlow(dec, decCapacityOpts, 'DECODE') +
+    '</div>';
 
-  $gpuFitSection.innerHTML = html;
+  $gpuFitSection.innerHTML = '';
   $metricsCompact.innerHTML = '';
   $formulaSection.classList.add('hidden');
 

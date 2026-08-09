@@ -24,7 +24,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/main.css">
 </head>
-<body>
+<body class="deploy-page">
 <nav class="nav">
   <div class="nav-inner">
     <span class="nav-brand"><span class="nav-brand-dot"></span> LLM Memory Calculator</span>
@@ -234,11 +234,27 @@
       </div>
     </div>
 
-    <div class="result-area" id="resultArea">
-      <div class="total-display">
-        <div class="total-value" id="totalPerGpu">&mdash;</div>
-        <div class="total-unit" id="totalUnit">GB</div>
+    <div class="result-area deploy-result" id="resultArea">
+      <div class="deploy-result-head">
+        <div class="concurrency-hero">
+          <div class="result-eyebrow" id="resultEyebrow">SAFE CAPACITY · PER GPU</div>
+          <div class="result-heading">Max concurrency</div>
+          <div class="concurrency-display">
+            <span class="concurrency-value" id="maxConcurrencyHero">&mdash;</span>
+            <span class="concurrency-unit">sequences</span>
+          </div>
+          <p class="concurrency-summary" id="concurrencySummary">Select a model and GPU to calculate serving capacity.</p>
+        </div>
+        <div class="current-footprint-card">
+          <div class="footprint-label">CURRENT ALLOCATION · PER GPU</div>
+          <div class="total-display">
+            <div class="total-value" id="totalPerGpu">&mdash;</div>
+            <div class="total-unit" id="totalUnit">GB</div>
+          </div>
+          <div class="footprint-note" id="footprintNote">Weights + selected active sequences</div>
+        </div>
       </div>
+      <div id="capacityFlowSection" class="capacity-flow-section"></div>
       <div id="ibarSection" class="ibar-section"></div>
       <div id="gpuFitSection"></div>
       <div class="metrics-compact" id="metricsCompact"></div>
