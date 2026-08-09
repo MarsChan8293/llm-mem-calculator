@@ -57,6 +57,9 @@ function calcDeploy(model, opts) {
       mode: 'disaggregated',
       prefill: preResult,
       decode: decResult,
+      maxConcurrency: preResult.maxConcurrency === null || decResult.maxConcurrency === null
+        ? null
+        : Math.min(preResult.maxConcurrency, decResult.maxConcurrency),
       totalGPUs: {
         prefill: preResult.totalGPUs,
         decode: decResult.totalGPUs,
@@ -188,6 +191,26 @@ function calcDeployUnified(model, opts) {
   var gpuUsage = gpuUsedWithOverhead / gpuUsableVram;
   var gpuFits = gpuUsage <= 1.0;
 
+  // Estimate the largest number of selected-context sequences that can fit
+  // after weights, the 90% vLLM budget, and the fixed per-GPU reserve. The
+  // minimum across pipeline stages is the safe limit for PP deployments.
+  var batch = Math.max(1, opts.batch || 1);
+  var maxConcurrency = null;
+  var kvSpacePerGPU = null;
+  stages.forEach(function (stage) {
+    var stageKvPerSequence = (stage.kvPerGPU + stage.idxPerGPU) / batch;
+    if (stageKvPerSequence <= 0) return;
+    var stageKvBudget = Math.max(0, gpuUsableVram - VLLM_CUDA_GRAPH_OVERHEAD_BYTES - stage.weightPerGPU);
+    kvSpacePerGPU = kvSpacePerGPU === null
+      ? stageKvBudget
+      : Math.min(kvSpacePerGPU, stageKvBudget);
+    var stageMaxConcurrency = Math.floor(stageKvBudget / stageKvPerSequence);
+    maxConcurrency = maxConcurrency === null
+      ? stageMaxConcurrency
+      : Math.min(maxConcurrency, stageMaxConcurrency);
+  });
+  var bottleneckKvPerSequence = (bottleneckStage.kvPerGPU + bottleneckStage.idxPerGPU) / batch;
+
   var formulaTitle = model.label + ' per-GPU (TP=' + tp + ', PP=' + pp + ', EP=' + ep + (cp > 1 ? ', CP=' + cp : '') + ')';
   var formulas = buildDeployFormulas(model, opts, weightResult, kvResult, stages);
 
@@ -198,6 +221,9 @@ function calcDeployUnified(model, opts) {
     mode: 'unified',
     weightPerGPU: maxStageWeightPerGPU,
     kvPerGPU: bottleneckStage.kvPerGPU + bottleneckStage.idxPerGPU,
+    kvPerGPUPerSequence: bottleneckKvPerSequence,
+    kvSpacePerGPU: kvSpacePerGPU === null ? 0 : kvSpacePerGPU,
+    maxConcurrency: maxConcurrency,
     totalPerGPU: maxStageTotalPerGPU,
     totalGPUs: tp * pp * dp,
     weightBreakdown: weightBreakdown,

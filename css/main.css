@@ -526,9 +526,14 @@ input[type="number"] { font-family: var(--mono); font-size: 0.85rem; }
   line-height: 1.8;
 }
 .metrics-compact .metric-item {
-  display: inline;
+  display: inline-block;
+  white-space: nowrap;
 }
 .metrics-compact .metric-sep {
+  display: none;
+}
+.metrics-compact .metric-sep + .metric-item::before {
+  content: '\00b7';
   color: var(--text3);
   margin: 0 8px;
 }

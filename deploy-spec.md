@@ -309,7 +309,7 @@ function calcUnifiedDeploy(model, options) {
 | Weight precision | Segmented | BF16 / FP8 / FP4 / 昇腾 W8A8 / 昇腾 W4A8 | 始终 | |
 | KV precision | Segmented | BF16 | 始终 | |
 | Indexer precision | Segmented | BF16 | 有 indexer 的模型 | |
-| Context length | 输入 + 预设 | 1,024 | 始终 | 复用 calculator.js |
+| Context length | 输入 + 预设 | 65,536 (64K) | 始终 | 复用 calculator.js |
 | Batch size | 按钮 + 自定义 | 1 | 始终 | |
 | Include draft KV | Toggle | off | 有 draft 的模型 | |
 | Include linear KV | Toggle | off | linear 模型 | |
@@ -742,11 +742,15 @@ Weight_total  = Attn/tp + Shared/tp + Expert/ep + Embed/tp  = 37.2 GiB
 
 KV/tp         = L × (KV_sw + KV_cmp) / 8 × T × p × B      = 0.8 GiB
 Idx/tp_idx    = L_4 × ⌊T/4⌋ × d_idx × p_idx × B / 8      = 0.2 GiB
-KV_total      = KV/tp + Idx/tp_idx                           = 1.0 GiB
+KV_total      = KV/tp + Idx/tp_idx                           = 1.0 GB
 
 ── Total ──
 
-Mem/GPU       = Weight_total + KV_total                      = 38.2 GiB
+Mem/GPU       = Weight_total + KV_total                      = 38.2 GB
+
+KV/seq        = KV_total / Batch                              = 1.0 GB
+KV space      = V_gpu × 90% − 5 GB − Weight_total
+Max concurrency = floor((V_gpu × 90% − 5 GB − Weight_total) / KV/seq)
 ```
 
 ### 8.2 公式变量
@@ -762,6 +766,8 @@ Deploy 新增的短符号：
 | `tp_idx` | Indexer tensor parallelism |
 | `B` | Batch size（注意：与 KV Cache 的 B = sequences 对齐） |
 | `V_gpu` | GPU VRAM |
+
+最大并发按选定 Context length 的单序列 KV（含 Indexer KV）估算，并在 PP 场景取各 stage 的最小值；它是显存容量上限估算，不替代 vLLM 启动时的实际 profiling。
 
 ---
 

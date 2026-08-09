@@ -336,6 +336,10 @@ function formatMetric(bytes) {
   return (bytes / 1e9).toFixed(5) + ' GB';
 }
 
+function formatConcurrency(value) {
+  return value === null || value === undefined ? '\u2014' : value.toLocaleString('en-US');
+}
+
 function fmtNum(n) { return n.toLocaleString('en-US'); }
 
 function fmtWNum(n) {
@@ -756,6 +760,12 @@ function renderUnified(result, model, opts) {
   metricsHtml += '<span class="metric-sep">\u00b7</span>';
   metricsHtml += '<span class="metric-item">KV <span class="metric-val">' + formatMetric(result.kvPerGPU) + '</span></span>';
   metricsHtml += '<span class="metric-sep">\u00b7</span>';
+  metricsHtml += '<span class="metric-item">KV / seq <span class="metric-val">' + formatMetric(result.kvPerGPUPerSequence) + '</span></span>';
+  metricsHtml += '<span class="metric-sep">\u00b7</span>';
+  metricsHtml += '<span class="metric-item">KV space <span class="metric-val">' + formatMetric(result.kvSpacePerGPU) + '</span></span>';
+  metricsHtml += '<span class="metric-sep">\u00b7</span>';
+  metricsHtml += '<span class="metric-item">Max concurrency <span class="metric-val">' + formatConcurrency(result.maxConcurrency) + '</span></span>';
+  metricsHtml += '<span class="metric-sep">\u00b7</span>';
   metricsHtml += '<span class="metric-item">GPUs <span class="metric-val">' + result.totalGPUs + '</span></span>';
   $metricsCompact.innerHTML = metricsHtml;
 
@@ -788,7 +798,7 @@ function renderUnified(result, model, opts) {
 
   $breakdownGrid.innerHTML = buildBreakdownRows(result);
 
-  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. GPU Fit reserves ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% VRAM for vLLM headroom and ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB per GPU for CUDA Graph capture. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
+  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. KV space is the remaining per-GPU capacity for cache after weights, the ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% vLLM headroom, and the ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB reserve. Max concurrency is the conservative floor across pipeline stages for the selected context length. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }
@@ -806,13 +816,13 @@ function renderDisaggregated(result, model, opts) {
   html += '<div class="disagg-total">' + formatMetric(pre.totalPerGPU) + '</div>';
   html += renderIbar(pre.ibarSegments, pre.totalPerGPU);
   html += renderGpuFit(pre.gpuFit);
-  html += '<div class="disagg-metrics">Weights: ' + formatMetric(pre.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(pre.kvPerGPU) + ' \u00b7 GPUs: ' + pre.totalGPUs + '</div>';
+  html += '<div class="disagg-metrics">Weights: ' + formatMetric(pre.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(pre.kvPerGPU) + ' \u00b7 KV/seq: ' + formatMetric(pre.kvPerGPUPerSequence) + ' \u00b7 KV space: ' + formatMetric(pre.kvSpacePerGPU) + ' \u00b7 Max concurrency: ' + formatConcurrency(pre.maxConcurrency) + ' \u00b7 GPUs: ' + pre.totalGPUs + '</div>';
   html += '</div>';
     html += '<div class="disagg-panel"><div class="disagg-label">Decode (TP=' + opts.decode.tp + ', PP=' + opts.decode.pp + ', EP=' + opts.decode.ep + ')</div>';
   html += '<div class="disagg-total">' + formatMetric(dec.totalPerGPU) + '</div>';
   html += renderIbar(dec.ibarSegments, dec.totalPerGPU);
   html += renderGpuFit(dec.gpuFit);
-  html += '<div class="disagg-metrics">Weights: ' + formatMetric(dec.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(dec.kvPerGPU) + ' \u00b7 GPUs: ' + dec.totalGPUs + '</div>';
+  html += '<div class="disagg-metrics">Weights: ' + formatMetric(dec.weightPerGPU) + ' \u00b7 KV: ' + formatMetric(dec.kvPerGPU) + ' \u00b7 KV/seq: ' + formatMetric(dec.kvPerGPUPerSequence) + ' \u00b7 KV space: ' + formatMetric(dec.kvSpacePerGPU) + ' \u00b7 Max concurrency: ' + formatConcurrency(dec.maxConcurrency) + ' \u00b7 GPUs: ' + dec.totalGPUs + '</div>';
   html += '</div>';
   html += '</div>';
 
@@ -827,7 +837,7 @@ function renderDisaggregated(result, model, opts) {
 
   $breakdownGrid.innerHTML = buildBreakdownRows(pre) + '<div class="breakdown-sep"></div>' + buildBreakdownRows(dec);
 
-  $noteSection.textContent = 'Disaggregated deployment: prefill and decode use separate GPU clusters with different parallelism. GPU Fit reserves ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% VRAM for vLLM headroom and ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB per GPU for CUDA Graph capture. Activations, framework overhead, and communication buffers remain excluded.';
+  $noteSection.textContent = 'Disaggregated deployment: prefill and decode use separate GPU clusters with different parallelism. Each panel shows its KV space, KV/seq, and conservative maximum concurrency; the usable limit is the smaller of the two. GPU Fit reserves ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% VRAM for vLLM headroom and ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB per GPU. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }
