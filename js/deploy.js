@@ -58,7 +58,7 @@ var $sourceLink = document.getElementById('sourceLink');
 var $themeToggle = document.getElementById('themeToggle');
 
 var selectedModelId = 'deepseek-v4-pro';
-var currentUnit = 'gib';
+var currentUnit = 'gb';
 var wtPrecValue = 'fp8_int8';
 var kvPrecValue = 'fp8_int8';
 var idxPrecValue = 'fp8_int8';

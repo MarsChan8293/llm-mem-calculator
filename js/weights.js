@@ -16,7 +16,7 @@ var $themeToggle = document.getElementById('themeToggle');
 var $breakdownToggle = document.getElementById('breakdownToggle');
 
 var selectedModelId = 'deepseek-v4-pro';
-var currentUnit = 'gib';
+var currentUnit = 'gb';
 var wtPrecValue = 'fp8_int8';
 
 function initTheme() {
