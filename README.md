@@ -25,7 +25,7 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 | KDA + Gated MLA (Kimi Delta Attention) | Kimi K3 |
 | DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1/5.2 |
 | Mixed Full + Sliding Window | Gemma 4, Cohere Command, MiMo-V2.5 |
-| Linear + Full Hybrid | Qwen3.5, Qwen3.6 |
+| Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8 |
 
 ## Features
 
