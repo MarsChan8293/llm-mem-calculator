@@ -28,7 +28,11 @@ var SYMBOL_NAMES = {
   h_kl: 'linear_key_heads', h_vl: 'linear_value_heads',
   d_kl: 'linear_key_head_dim', d_vl: 'linear_value_head_dim',
   k_c: 'conv_kernel_dim',
-  h_idx: 'sparse_index_heads', L_sp: 'sparse_layers'
+  h_idx: 'sparse_index_heads', L_sp: 'sparse_layers',
+  L_idx: 'indexer_source_layers', k_pool: 'indexer_pool_size',
+  r_idx: 'indexer_compress_ratio', h_idx_kv: 'indexer_kv_heads',
+  h_l: 'linear_num_heads', d_l: 'linear_head_dim', qkv: 'linear_qkv_width',
+  s_idx: 'indexer_scale_bytes_per_pool'
 };
 
 /**
@@ -67,7 +71,9 @@ function fmtNum(n) { return n.toLocaleString('en-US'); }
  * @param {number} precB        - Bytes per element for KV precision
  * @param {number} idxB         - Bytes per element for indexer precision
  * @param {Object} options      - { includeDraft: bool, includeLinear: bool }
- * @returns {{ kvBytes: number, idxBytes: number, perTokenBytes: number,
+ * @returns {{ kvBytes: number, idxBytes: number, mainKvBytes: number, draftKvBytes: number,
+ *             kvLayerBytes: Array<number>|null, idxLayerBytes: Array<number>|null,
+ *             perTokenBytes: number,
  *             breakdown: Array<{label:string,value:string,tip?:string}>,
  *             formulas: Array<{name:string,tip:string,expr:string}>,
  *             formulaTitle: string }}
@@ -86,6 +92,15 @@ function calcKvCache(model, tokens, precB, idxB, options) {
   var patterns = [];
   var idxLayers = 0;
   var legendTypes = [];
+  // New hybrid formulas expose ownership of persistent cache state so the
+  // deployment calculator can place shared source caches on the right PP
+  // stage instead of spreading them uniformly across all layers.
+  var mainKvBytes = null;
+  var draftKvBytes = 0;
+  var kvLayerBytes = null;
+  var idxLayerBytes = null;
+  var linearLayerBytes = null;
+  var globalCacheBytes = null;
 
   // ── standard_gqa ──
   if (formula === 'standard_gqa') {
@@ -392,6 +407,107 @@ function calcKvCache(model, tokens, precB, idxB, options) {
     // Return kvBytes = totalKvBytes so single-sequence KV is complete.
     kvBytes = totalKvBytes;
 
+  // ── deepseek_v41 ──
+  } else if (formula === 'deepseek_v41') {
+    const totalLayers = f.num_hidden_layers;
+    const sw = f.sliding_window;
+    const hd = f.head_dim;
+    const idxHd = f.index_head_dim;
+    const ratios = Array.isArray(f.compress_ratios) ? f.compress_ratios : [];
+    const kvSources = Array.isArray(f.kv_source_layer_ids) ? f.kv_source_layer_ids : [];
+    const idxSources = Array.isArray(f.index_source_layer_ids) ? f.index_source_layer_ids : [];
+    // Reindex layers execute queries but reuse the most recent owner's K.
+    // Official inference/model.py: Indexer.owns_k = layer_id in kv_source_layers.
+    const idxOwners = kvSources.filter(function (layer) { return idxSources.indexOf(layer) >= 0; });
+    // Packed FP4 payload, including one byte of scale per group (not the
+    // dequantized BF16 tensors used by the minimal reference implementation).
+    const kvSlotBytes = hd * precB + (precB === 0.5 ? Math.ceil(hd / 16) : 0);
+    const idxSlotBytes = idxHd * idxB + (idxB === 0.5 ? Math.ceil(idxHd / 32) : 0);
+
+    // V4.1's compressed KV is source-owned and shared by consuming layers.
+    // Do not sum one compressed cache for every layer with the same ratio:
+    // only the four kv_source_layer_ids allocate these persistent caches.
+    const windowElements = totalLayers * sw * hd;
+    const windowBytes = windowElements * precB;
+    var compressedElementsV41 = 0;
+    var compressedBytesV41 = 0;
+    var kvSourcesWithCache = 0;
+    kvLayerBytes = [];
+    for (var v41Layer = 0; v41Layer < totalLayers; v41Layer++) {
+      kvLayerBytes[v41Layer] = sw * hd * precB;
+    }
+    kvSources.forEach(function (sourceLayer) {
+      var ratio = ratios[sourceLayer] || 0;
+      if (ratio <= 0) return;
+      var slots = Math.floor(tokens / ratio);
+      var sourceElements = slots * hd;
+      var sourceBytes = slots * kvSlotBytes;
+      compressedElementsV41 += sourceElements;
+      compressedBytesV41 += sourceBytes;
+      kvSourcesWithCache++;
+      if (sourceLayer >= 0 && sourceLayer < kvLayerBytes.length) kvLayerBytes[sourceLayer] += sourceBytes;
+    });
+    mainKvBytes = windowBytes + compressedBytesV41;
+
+    var draftLayersV41 = includeDraft ? (f.num_nextn_predict_layers || 0) : 0;
+    draftKvBytes = draftLayersV41 * sw * hd * precB;
+    kvBytes = mainKvBytes + draftKvBytes;
+
+    // Only K owners allocate persistent keys; query/reindex layers do not.
+    var idxElementsV41 = 0;
+    idxLayerBytes = [];
+    idxOwners.forEach(function (sourceLayer) {
+      var ratio = ratios[sourceLayer] || 0;
+      if (ratio <= 0) return;
+      var slots = Math.floor(tokens / ratio);
+      var sourceIdxBytes = slots * idxSlotBytes;
+      idxElementsV41 += slots * idxHd;
+      idxBytes += sourceIdxBytes;
+      if (sourceLayer >= 0 && sourceLayer < totalLayers) idxLayerBytes[sourceLayer] = (idxLayerBytes[sourceLayer] || 0) + sourceIdxBytes;
+    });
+    idxLayers = idxOwners.length;
+    globalCacheBytes = compressedBytesV41 + idxBytes;
+    perTokenBytes = (kvBytes + idxBytes) / tokens;
+
+    formulaTitle = model.label + ' CED + shared compressed KV';
+    formulas = [
+      { name: 'KV_sw', tip: 'All 40 CED backbone layers keep one sliding-window latent vector per retained token.', expr: 'L × W × d_h × p', values: { L: totalLayers, W: sw, d_h: hd, p: precB }, resultValue: windowBytes, bar: [{ type: 'window', bytes: windowBytes }], ibarVal: fmtBytes(windowBytes) },
+      { name: 'KV_cmp', tip: 'Source-owned packed KV. FP4 includes one E4M3 scale byte per 16 channels.', expr: 'Σ_sources ⌊T/r⌋ × slot_bytes', values: { T: tokens, slot_bytes: kvSlotBytes }, resultValue: compressedBytesV41, bar: [{ type: 'compressed', bytes: compressedBytesV41 }], ibarVal: fmtBytes(compressedBytesV41) },
+      { name: 'KV', tip: 'Main CED cache: all-layer sliding window plus the four source-owned compressed caches.', expr: 'KV_sw + KV_cmp', values: { KV_sw: windowBytes, KV_cmp: compressedBytesV41 }, resultValue: mainKvBytes, bar: [{ type: 'window', bytes: windowBytes }, { type: 'compressed', bytes: compressedBytesV41 }], ibarVal: fmtBytes(mainKvBytes) },
+      { name: 'Idx', tip: 'Four K owners, not eight querying layers. FP4 includes one E8M0 scale byte per 32 channels.', expr: 'Σ_K_owners ⌊T/r⌋ × slot_bytes', values: { T: tokens, slot_bytes: idxSlotBytes }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
+      { name: 'Total', tip: 'Combined cache payload for one sequence, including optional DSpark draft layers.', expr: 'KV + KV_draft + Idx', values: { KV: mainKvBytes, KV_draft: draftKvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: [{ type: 'window', bytes: windowBytes + draftKvBytes }, { type: 'compressed', bytes: compressedBytesV41 }, { type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) }
+    ];
+
+    patterns = [
+      { segs: [{ type: 'window', ratio: 1 }], count: totalLayers, label: 'window on every layer', bytes: sw * hd * precB },
+    ];
+    if (kvSourcesWithCache > 0) {
+      patterns.push({ segs: [{ type: 'compressed', ratio: 1 }], count: kvSourcesWithCache, label: 'shared KV source cache', bytes: compressedBytesV41 / kvSourcesWithCache });
+    }
+    if (idxOwners.length > 0) {
+      patterns.push({ segs: [{ type: 'indexer', ratio: 1 }], count: idxOwners.length, label: 'indexer K owner cache', bytes: idxBytes / idxOwners.length });
+    }
+    legendTypes = ['window', 'compressed', 'indexer'];
+
+    breakdown = [
+      { label: 'CED backbone layers', value: fmtNum(totalLayers) },
+      { label: 'Sliding window', value: fmtNum(sw) },
+      { label: 'KV source layers', value: fmtNum(kvSources.length), tip: 'Persistent compressed KV is allocated once per source layer and shared by its consumers.' },
+      { label: 'Compressed source caches', value: fmtNum(kvSourcesWithCache) },
+      { label: 'Sliding-window elements', value: fmtNum(windowElements) },
+      { label: 'Compressed elements', value: fmtNum(compressedElementsV41), tip: 'Sum over the four source-owned caches, not over all consuming layers.' },
+      { label: 'Indexer source layers', value: fmtNum(idxSources.length) },
+      { label: 'Indexer K storage owners', value: fmtNum(idxOwners.length), tip: 'Other indexing layers reuse these keys rather than allocating another cache.' },
+      { label: 'Global cache bytes/token', value: fmtNum((compressedBytesV41 + idxBytes) / tokens), tip: 'Excludes fixed sliding windows and Draft. Select FP4 for BOTH KV and Indexer to reproduce 890 bytes/token at even token counts; includes packed scale bytes.' },
+      { label: 'Packed global KV slot bytes', value: fmtNum(kvSlotBytes) },
+      { label: 'Packed indexer slot bytes', value: fmtNum(idxSlotBytes) },
+      { label: 'Indexer elements', value: fmtNum(idxElementsV41), tip: 'One index key vector per compressed slot; index_n_heads is not a storage multiplier.' },
+      { label: 'Draft layers included', value: fmtNum(draftLayersV41), tip: 'Optional DSpark/MTP layers add sliding-window state only.' },
+      { label: 'KV precision bytes', value: precB.toString() },
+      { label: 'Indexer precision bytes', value: idxB.toString() },
+      { label: 'Total bytes', value: fmtNum(kvBytes + idxBytes) },
+    ];
+
   // ── mixed_full_sliding_gqa ──
   } else if (formula === 'mixed_full_sliding_gqa') {
     const fullLayers = f.full_attention_layers;
@@ -529,6 +645,251 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { label: 'Per-token elements', value: fmtNum(2 * fullLayers * kvHeads * hd), tip: 'Full attention only: 2 \u00d7 full_layers \u00d7 kv_heads \u00d7 head_dim' },
       { label: 'Precision bytes', value: precB.toString() },
       { label: 'Total bytes', value: fmtNum(kvBytes) },
+    ];
+
+  // ── glm5_next_hybrid (GLM-5.3-Flash: KDA linear + sparse MLA) ──
+  } else if (formula === 'glm5_next_hybrid') {
+    const totalLayers = f.num_hidden_layers;
+    const layerTypes = Array.isArray(f.layer_types) ? f.layer_types : [];
+    const configuredSparseLayerIds = Array.isArray(f.sparse_attention_layer_ids) ? f.sparse_attention_layer_ids : [];
+    const sparseLayerIds = configuredSparseLayerIds.length > 0
+      ? configuredSparseLayerIds
+      : (layerTypes.length > 0
+        ? layerTypes.map(function (type, index) { return type === 'deepseek_sparse_attention' ? index : -1; }).filter(function (index) { return index >= 0; })
+        : []);
+    const sparseLayers = sparseLayerIds.length || f.sparse_attention_layers || 0;
+    const linearLayers = f.linear_attention_layers || (totalLayers - sparseLayers);
+    const sparseKvRank = f.kv_lora_rank || 0;
+    const qkRopeHd = f.qk_rope_head_dim || 0;
+    const linHeads = f.linear_num_heads || 0;
+    const linHd = f.linear_head_dim || 0;
+    const convKernel = f.linear_conv_kernel_dim || 0;
+
+    // Sparse MLA layers retain one compressed latent per token. GLM-5.3-Flash
+    // has qk_rope_head_dim=0, so there is no additional RoPE cache segment.
+    const sparseKvElements = sparseLayers * (sparseKvRank + qkRopeHd) * tokens;
+    const sparseKvBytes = sparseKvElements * precB;
+
+    // KDA state is fixed per sequence. The GLM implementation projects Q, K
+    // and V with the same (heads × head_dim) width, then keeps a recurrent
+    // [heads, key_dim, value_dim] state. These states are not token-linear KV.
+    const linearQkvDim = linHeads * linHd;
+    const linearConvElements = linearLayers * convKernel * (3 * linearQkvDim);
+    const linearRecurrentElements = linearLayers * linHeads * linHd * linHd;
+    const linearConvBytes = includeLinear ? linearConvElements * 2 : 0;
+    const linearRecurrentBytes = includeLinear ? linearRecurrentElements * 4 : 0;
+    const linearStateBytes = linearConvBytes + linearRecurrentBytes;
+
+    kvLayerBytes = [];
+    var linearStatePerLayer = linearLayers > 0 ? linearStateBytes / linearLayers : 0;
+    for (var glmLayer = 0; glmLayer < totalLayers; glmLayer++) {
+      var isSparseGlmLayer = sparseLayerIds.length > 0
+        ? sparseLayerIds.indexOf(glmLayer) >= 0
+        : glmLayer < sparseLayers;
+      kvLayerBytes[glmLayer] = isSparseGlmLayer
+        ? (sparseKvRank + qkRopeHd) * tokens * precB
+        : linearStatePerLayer;
+    }
+    mainKvBytes = sparseKvBytes + linearStateBytes;
+    linearLayerBytes = kvLayerBytes.map(function (bytes, layer) {
+      var sparse = sparseLayerIds.length > 0 ? sparseLayerIds.indexOf(layer) >= 0 : layer < sparseLayers;
+      return sparse ? 0 : bytes;
+    });
+
+    // The optional draft stack is represented as a latent MLA layer. The
+    // published Transformers block has no separate indexer for that stack.
+    var draftLayersGlm = includeDraft ? (f.num_nextn_predict_layers || 0) : 0;
+    draftKvBytes = draftLayersGlm * (sparseKvRank + qkRopeHd) * tokens * precB;
+    kvBytes = mainKvBytes + draftKvBytes;
+
+    // DSA indexer keys are pooled once per index_kpool tokens. index_topk is a
+    // lookup budget, not the number of stored cache vectors. The physical
+    // tail uses two BF16 vectors (K plus gate score) for the incomplete pool.
+    const indexPool = f.index_kpool || 1;
+    const indexHeadDim = f.index_head_dim || 0;
+    const fullIndexPools = Math.floor(tokens / indexPool);
+    const indexTailTokens = tokens % indexPool;
+    const indexPoolElements = sparseLayers * fullIndexPools * indexHeadDim;
+    const indexTailElements = sparseLayers * indexTailTokens * 2 * indexHeadDim;
+    const indexScaleBytesPerPool = idxB === 1 ? (f.indexer_scale_bytes || 0) : 0;
+    const indexScaleBytes = sparseLayers * fullIndexPools * indexScaleBytesPerPool;
+    const indexPoolBytes = (indexPoolElements * idxB) + indexScaleBytes;
+    const indexTailBytes = indexTailElements * 2;
+    idxBytes = indexPoolBytes + indexTailBytes;
+    idxLayers = sparseLayers;
+    idxLayerBytes = [];
+    sparseLayerIds.forEach(function (layerId) {
+      idxLayerBytes[layerId] = fullIndexPools * (indexHeadDim * idxB + indexScaleBytesPerPool) + indexTailTokens * 2 * indexHeadDim * 2;
+    });
+    if (sparseLayerIds.length === 0) {
+      for (var glmIdxLayer = 0; glmIdxLayer < sparseLayers; glmIdxLayer++) {
+        idxLayerBytes[glmIdxLayer] = fullIndexPools * (indexHeadDim * idxB + indexScaleBytesPerPool) + indexTailTokens * 2 * indexHeadDim * 2;
+      }
+    }
+    perTokenBytes = (kvBytes + idxBytes) / tokens;
+
+    formulaTitle = model.label + ' KDA linear + sparse MLA';
+    const sparsePerLayerBytes = (sparseKvRank + qkRopeHd) * tokens * precB;
+    const indexPerSparseLayerBytes = sparseLayers > 0 ? idxBytes / sparseLayers : 0;
+    const linearStateDenom = linearConvBytes + linearRecurrentBytes;
+    formulas = [
+      { name: 'KV_s', tip: 'Sparse MLA layers retain one compressed latent per token. qk_rope_head_dim=0 for GLM-5.3-Flash.', expr: 'L_s × (d_c + d_r) × T × p', values: { L_s: sparseLayers, d_c: sparseKvRank, d_r: qkRopeHd, T: tokens, p: precB }, resultValue: sparseKvBytes, bar: [{ type: 'compressed', bytes: sparseKvBytes }], ibarVal: fmtBytes(sparseKvBytes) },
+      { name: 'S_conv', tip: 'KDA short-convolution state, fixed per sequence in BF16.', expr: 'B × L_l × k_c × (3 × h_l × d_l) × 2', values: { L_l: linearLayers, k_c: convKernel, h_l: linHeads, d_l: linHd }, resultValue: linearConvBytes, bar: [{ type: 'fixed', bytes: linearConvBytes }], ibarVal: fmtBytes(linearConvBytes) },
+      { name: 'S_rec', tip: 'KDA recurrent state, fixed per sequence in FP32.', expr: 'B × L_l × h_l × d_l × d_l × 4', values: { L_l: linearLayers, h_l: linHeads, d_l: linHd }, resultValue: linearRecurrentBytes, bar: [{ type: 'fixed-alt', bytes: linearRecurrentBytes }], ibarVal: fmtBytes(linearRecurrentBytes) },
+      { name: 'Idx', tip: 'Sparse indexer cache: one K vector per complete token pool plus a small BF16 tail for the incomplete pool. The FP8 path also stores one scale scalar per pool; index_topk is not a cache-length multiplier.', expr: 'L_s × (⌊T/k_p⌋ × (d_idx × p_idx + s_idx) + (T mod k_p) × 2 × d_idx × 2)', values: { L_s: sparseLayers, T: tokens, k_p: indexPool, d_idx: indexHeadDim, p_idx: idxB, s_idx: indexScaleBytesPerPool }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
+      { name: 'KV', tip: 'Main cache combining sparse MLA token cache and optional KDA fixed state.', expr: 'KV_s + S_conv + S_rec', values: { KV_s: sparseKvBytes, S_conv: linearConvBytes, S_rec: linearRecurrentBytes }, resultValue: mainKvBytes, bar: [{ type: 'compressed', bytes: sparseKvBytes }, { type: 'fixed', bytes: linearConvBytes }, { type: 'fixed-alt', bytes: linearRecurrentBytes }], ibarVal: fmtBytes(mainKvBytes) },
+      { name: 'Total', tip: 'Combined cache payload for one sequence, including optional draft layers.', expr: 'KV + KV_draft + Idx', values: { KV: mainKvBytes, KV_draft: draftKvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: [{ type: 'compressed', bytes: sparseKvBytes + draftKvBytes }, { type: 'fixed', bytes: linearConvBytes }, { type: 'fixed-alt', bytes: linearRecurrentBytes }, { type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) }
+    ];
+
+    patterns = [];
+    if (sparseLayers > 0) {
+      var sparsePatternTotal = sparsePerLayerBytes + indexPerSparseLayerBytes;
+      patterns.push({ segs: sparsePatternTotal > 0 ? [{ type: 'compressed', ratio: sparsePerLayerBytes / sparsePatternTotal }, { type: 'indexer', ratio: indexPerSparseLayerBytes / sparsePatternTotal }] : [{ type: 'compressed', ratio: 1 }], count: sparseLayers, label: 'sparse MLA + indexer', bytes: sparsePatternTotal });
+    }
+    if (linearLayers > 0) {
+      patterns.push({ segs: linearStateDenom > 0 ? [{ type: 'fixed', ratio: linearConvBytes / linearStateDenom }, { type: 'fixed-alt', ratio: linearRecurrentBytes / linearStateDenom }] : [{ type: 'fixed', ratio: 0.5 }, { type: 'fixed-alt', ratio: 0.5 }], count: linearLayers, label: 'KDA linear state', bytes: linearStateDenom > 0 ? linearStateDenom / linearLayers : 0 });
+    }
+    legendTypes = ['compressed', 'indexer', 'fixed'];
+
+    breakdown = [
+      { label: 'Layers', value: fmtNum(totalLayers) },
+      { label: 'Sparse MLA layers', value: fmtNum(sparseLayers) },
+      { label: 'KDA linear layers', value: fmtNum(linearLayers) },
+      { label: 'KV LoRA rank', value: fmtNum(sparseKvRank) },
+      { label: 'QK RoPE head dim', value: fmtNum(qkRopeHd) },
+      { label: 'Sparse KV elements', value: fmtNum(sparseKvElements) },
+      { label: 'Linear state included', value: includeLinear ? 'Yes' : 'No', tip: 'Whether the fixed KDA convolution and recurrent state is included.' },
+      { label: 'Linear conv elements', value: fmtNum(linearConvElements) },
+      { label: 'Linear recurrent elements', value: fmtNum(linearRecurrentElements) },
+      { label: 'Indexer pool size', value: fmtNum(indexPool), tip: 'One indexer K vector is stored per complete pool; index_topk=2048 is a lookup budget.' },
+      { label: 'Indexer pooled elements', value: fmtNum(indexPoolElements) },
+      { label: 'Indexer scale bytes per pool', value: fmtNum(indexScaleBytesPerPool), tip: 'GLM FP8 indexer cache stores one scale scalar per pooled K vector.' },
+      { label: 'Indexer tail elements', value: fmtNum(indexTailElements), tip: 'Small incomplete-pool tail, stored in BF16 K plus gate-score state.' },
+      { label: 'Indexer precision bytes', value: idxB.toString() },
+      { label: 'Draft layers included', value: fmtNum(draftLayersGlm), tip: 'Optional latent draft layers; no separate draft indexer cache is added.' },
+      { label: 'Total bytes', value: fmtNum(kvBytes + idxBytes) },
+    ];
+
+  // ── qwen_qsa_gdn_hybrid (Qwen3.8-Flash-Next) ──
+  } else if (formula === 'qwen_qsa_gdn_hybrid') {
+    const totalLayers = f.num_hidden_layers;
+    const fullLayerIds = Array.isArray(f.full_attention_layer_ids)
+      ? f.full_attention_layer_ids
+      : [];
+    const fullLayers = fullLayerIds.length || f.full_attention_layers || 0;
+    const linearLayers = f.linear_attention_layers || (totalLayers - fullLayers);
+    const kvHeads = f.num_key_value_heads;
+    const hd = f.head_dim;
+    const linKeyHeads = f.linear_num_key_heads;
+    const linValueHeads = f.linear_num_value_heads;
+    const linKeyHd = f.linear_key_head_dim;
+    const linValueHd = f.linear_value_head_dim;
+    const convKernel = f.linear_conv_kernel_dim;
+
+    // QSA full-attention layers use raw GQA K and V. This is not MLA, so KV
+    // is sharded by TP in deployment and has the usual two (K + V) factor.
+    const fullElementsQsa = 2 * fullLayers * kvHeads * hd * tokens;
+    const fullBytesQsa = fullElementsQsa * precB;
+
+    // GDN linear state is fixed per sequence and uses BF16 conv + FP32
+    // recurrent state, matching the Qwen linear-attention implementation.
+    const linearConvElementsQsa = linearLayers * convKernel * (2 * linKeyHeads * linKeyHd + linValueHeads * linValueHd);
+    const linearRecurrentElementsQsa = linearLayers * linValueHeads * linKeyHd * linValueHd;
+    const linearConvBytesQsa = includeLinear ? linearConvElementsQsa * 2 : 0;
+    const linearRecurrentBytesQsa = includeLinear ? linearRecurrentElementsQsa * 4 : 0;
+    const linearStateBytesQsa = linearConvBytesQsa + linearRecurrentBytesQsa;
+
+    kvLayerBytes = [];
+    const fullIdSetQsa = {};
+    fullLayerIds.forEach(function (layerId) { fullIdSetQsa[layerId] = true; });
+    var linearStatePerLayerQsa = linearLayers > 0 ? linearStateBytesQsa / linearLayers : 0;
+    for (var qsaLayer = 0; qsaLayer < totalLayers; qsaLayer++) {
+      var isFullQsaLayer = fullLayerIds.length > 0 ? !!fullIdSetQsa[qsaLayer] : qsaLayer >= 0 && ((qsaLayer + 1) % (f.full_attention_interval || 4) === 0);
+      kvLayerBytes[qsaLayer] = isFullQsaLayer
+        ? 2 * kvHeads * hd * tokens * precB
+        : linearStatePerLayerQsa;
+    }
+    mainKvBytes = fullBytesQsa + linearStateBytesQsa;
+    linearLayerBytes = kvLayerBytes.map(function (bytes, layer) {
+      var full = fullLayerIds.length > 0 ? !!fullIdSetQsa[layer] : (layer + 1) % (f.full_attention_interval || 4) === 0;
+      return full ? 0 : bytes;
+    });
+
+    var draftLayersQsa = includeDraft ? (f.mtp_num_hidden_layers || 0) : 0;
+    var draftFullLayersQsa = includeDraft ? (f.mtp_full_attention_layers || draftLayersQsa) : 0;
+    draftKvBytes = draftFullLayersQsa * 2 * kvHeads * hd * tokens * precB;
+    kvBytes = mainKvBytes + draftKvBytes;
+
+    // QSA's indexer stores one K vector per compressed micro-block. The four
+    // indexer heads are query-side heads; indexer_kv_heads=1 is the cache
+    // multiplier. Keep the BF16 tail separate from the selectable pool
+    // precision because serving engines retain it in BF16.
+    const indexRatioQsa = f.indexer_compress_ratio || 1;
+    const indexHdQsa = f.indexer_head_dim || 0;
+    const indexKvHeadsQsa = f.indexer_kv_heads || 1;
+    const fullPoolsQsa = Math.floor(tokens / indexRatioQsa);
+    const tailTokensQsa = tokens % indexRatioQsa;
+    const indexPoolElementsQsa = fullLayers * fullPoolsQsa * indexKvHeadsQsa * indexHdQsa;
+    const indexTailElementsQsa = fullLayers * tailTokensQsa * 2 * indexHdQsa;
+    const indexPoolBytesQsa = indexPoolElementsQsa * idxB;
+    const indexTailBytesQsa = indexTailElementsQsa * 2;
+    idxBytes = indexPoolBytesQsa + indexTailBytesQsa;
+    idxLayers = fullLayers;
+    idxLayerBytes = [];
+    if (fullLayerIds.length > 0) {
+      fullLayerIds.forEach(function (layerId) {
+        idxLayerBytes[layerId] = fullPoolsQsa * indexKvHeadsQsa * indexHdQsa * idxB + tailTokensQsa * 2 * indexHdQsa * 2;
+      });
+    } else {
+      var generatedFullIdsQsa = [];
+      for (var qsaFullIndex = (f.full_attention_interval || 4) - 1; qsaFullIndex < totalLayers; qsaFullIndex += (f.full_attention_interval || 4)) generatedFullIdsQsa.push(qsaFullIndex);
+      generatedFullIdsQsa.slice(0, fullLayers).forEach(function (layerId) {
+        idxLayerBytes[layerId] = fullPoolsQsa * indexKvHeadsQsa * indexHdQsa * idxB + tailTokensQsa * 2 * indexHdQsa * 2;
+      });
+    }
+    perTokenBytes = (kvBytes + idxBytes) / tokens;
+
+    formulaTitle = model.label + ' GDN linear + QSA';
+    const fullPerLayerQsa = 2 * kvHeads * hd * tokens * precB;
+    const indexPerFullLayerQsa = fullLayers > 0 ? idxBytes / fullLayers : 0;
+    const linearStateDenomQsa = linearConvBytesQsa + linearRecurrentBytesQsa;
+    formulas = [
+      { name: 'KV_f', tip: 'QSA full-attention layers store raw GQA K and V for the full context.', expr: '2 × L_f × h_kv × d_h × T × p', values: { L_f: fullLayers, h_kv: kvHeads, d_h: hd, T: tokens, p: precB }, resultValue: fullBytesQsa, bar: [{ type: 'full', bytes: fullBytesQsa }], ibarVal: fmtBytes(fullBytesQsa) },
+      { name: 'S_conv', tip: 'GDN short-convolution state, fixed per sequence in BF16.', expr: 'B × L_l × k_c × (2 × h_kl × d_kl + h_vl × d_vl) × 2', values: { L_l: linearLayers, k_c: convKernel, h_kl: linKeyHeads, d_kl: linKeyHd, h_vl: linValueHeads, d_vl: linValueHd }, resultValue: linearConvBytesQsa, bar: [{ type: 'fixed', bytes: linearConvBytesQsa }], ibarVal: fmtBytes(linearConvBytesQsa) },
+      { name: 'S_rec', tip: 'GDN recurrent state, fixed per sequence in FP32.', expr: 'B × L_l × h_vl × d_kl × d_vl × 4', values: { L_l: linearLayers, h_vl: linValueHeads, d_kl: linKeyHd, d_vl: linValueHd }, resultValue: linearRecurrentBytesQsa, bar: [{ type: 'fixed-alt', bytes: linearRecurrentBytesQsa }], ibarVal: fmtBytes(linearRecurrentBytesQsa) },
+      { name: 'Idx', tip: 'QSA indexer cache: one K vector per compressed micro-block, plus a small BF16 tail. indexer_n_heads and indexer_budget are not cache multipliers.', expr: 'L_f × (⌊T/r_idx⌋ × h_idx_kv × d_idx × p_idx + (T mod r_idx) × 2 × d_idx × 2)', values: { L_f: fullLayers, T: tokens, r_idx: indexRatioQsa, h_idx_kv: indexKvHeadsQsa, d_idx: indexHdQsa, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
+      { name: 'KV', tip: 'Main QSA + GDN cache for one sequence.', expr: 'KV_f + S_conv + S_rec', values: { KV_f: fullBytesQsa, S_conv: linearConvBytesQsa, S_rec: linearRecurrentBytesQsa }, resultValue: mainKvBytes, bar: [{ type: 'full', bytes: fullBytesQsa }, { type: 'fixed', bytes: linearConvBytesQsa }, { type: 'fixed-alt', bytes: linearRecurrentBytesQsa }], ibarVal: fmtBytes(mainKvBytes) },
+      { name: 'Total', tip: 'Combined cache payload for one sequence, including optional MTP full-attention cache.', expr: 'KV + KV_draft + Idx', values: { KV: mainKvBytes, KV_draft: draftKvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: [{ type: 'full', bytes: fullBytesQsa + draftKvBytes }, { type: 'fixed', bytes: linearConvBytesQsa }, { type: 'fixed-alt', bytes: linearRecurrentBytesQsa }, { type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) }
+    ];
+
+    patterns = [];
+    if (fullLayers > 0) {
+      var qsaFullPatternTotal = fullPerLayerQsa + indexPerFullLayerQsa;
+      patterns.push({ segs: qsaFullPatternTotal > 0 ? [{ type: 'full', ratio: fullPerLayerQsa / qsaFullPatternTotal }, { type: 'indexer', ratio: indexPerFullLayerQsa / qsaFullPatternTotal }] : [{ type: 'full', ratio: 1 }], count: fullLayers, label: 'QSA full + indexer', bytes: qsaFullPatternTotal });
+    }
+    if (linearLayers > 0) {
+      patterns.push({ segs: linearStateDenomQsa > 0 ? [{ type: 'fixed', ratio: linearConvBytesQsa / linearStateDenomQsa }, { type: 'fixed-alt', ratio: linearRecurrentBytesQsa / linearStateDenomQsa }] : [{ type: 'fixed', ratio: 0.5 }, { type: 'fixed-alt', ratio: 0.5 }], count: linearLayers, label: 'GDN linear state', bytes: linearStateDenomQsa > 0 ? linearStateDenomQsa / linearLayers : 0 });
+    }
+    legendTypes = ['full', 'indexer', 'fixed'];
+
+    var ngramTableElementsQsa = (f.ngram_vocab_size_base || 0) * (f.ple_embed_dim || 0);
+    breakdown = [
+      { label: 'Layers', value: fmtNum(totalLayers) },
+      { label: 'QSA full layers', value: fmtNum(fullLayers) },
+      { label: 'GDN linear layers', value: fmtNum(linearLayers) },
+      { label: 'Full KV heads', value: fmtNum(kvHeads) },
+      { label: 'Full head dim', value: fmtNum(hd) },
+      { label: 'Full KV elements', value: fmtNum(fullElementsQsa) },
+      { label: 'Linear state included', value: includeLinear ? 'Yes' : 'No', tip: 'Whether the fixed GDN convolution and recurrent state is included.' },
+      { label: 'Linear conv elements', value: fmtNum(linearConvElementsQsa) },
+      { label: 'Linear recurrent elements', value: fmtNum(linearRecurrentElementsQsa) },
+      { label: 'Indexer compress ratio', value: fmtNum(indexRatioQsa), tip: 'One indexer K vector per compressed micro-block.' },
+      { label: 'Indexer pooled elements', value: fmtNum(indexPoolElementsQsa) },
+      { label: 'Indexer tail elements', value: fmtNum(indexTailElementsQsa), tip: 'Small incomplete-pool tail, retained in BF16.' },
+      { label: 'Indexer precision bytes', value: idxB.toString() },
+      { label: 'Draft full-attention layers', value: fmtNum(draftFullLayersQsa), tip: 'Optional MTP layer(s); the nested Qwen MTP config is full attention and has no separate indexer cache.' },
+      { label: 'N-gram / PLE table elements', value: fmtNum(ngramTableElementsQsa), tip: 'Model auxiliary table; off-accelerator and excluded from per-sequence KV cache.' },
+      { label: 'Total bytes', value: fmtNum(kvBytes + idxBytes) },
     ];
 
 
@@ -702,6 +1063,12 @@ function calcKvCache(model, tokens, precB, idxB, options) {
     kvBytes: kvBytes,
     idxBytes: idxBytes,
     idxLayers: idxLayers,
+    mainKvBytes: mainKvBytes === null ? (draftKvBytes > 0 ? kvBytes - draftKvBytes : kvBytes) : mainKvBytes,
+    draftKvBytes: draftKvBytes,
+    kvLayerBytes: kvLayerBytes,
+    idxLayerBytes: idxLayerBytes,
+    linearLayerBytes: linearLayerBytes,
+    globalCacheBytes: globalCacheBytes,
     perTokenBytes: perTokenBytes,
     breakdown: breakdown,
     formulas: formulas,

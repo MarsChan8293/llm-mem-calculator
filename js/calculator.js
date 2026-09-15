@@ -344,19 +344,19 @@ function calculate() {
   var includeDraft = $draftToggle.getAttribute('aria-checked') === 'true';
   var includeLinear = $linearToggle.getAttribute('aria-checked') === 'true';
 
-  var hasIndexer = ['deepseek_v4_hybrid', 'dsa_mla', 'msa_gqa'].includes(formula);
+  var hasIndexer = ['deepseek_v4_hybrid', 'deepseek_v41', 'dsa_mla', 'msa_gqa', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(formula);
   $idxPrecField.classList.toggle('hidden', !hasIndexer);
 
-  var hasDraft = ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'standard_gqa', 'msa_gqa'].includes(formula) &&
-    (f.num_nextn_predict_layers || f.mtp_transformer_layers);
+  var hasDraft = ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'deepseek_v41', 'standard_gqa', 'msa_gqa', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(formula) &&
+    (f.num_nextn_predict_layers || f.mtp_transformer_layers || (formula === 'qwen_qsa_gdn_hybrid' && f.mtp_num_hidden_layers));
   $draftField.classList.toggle('hidden', !hasDraft);
-  if (hasDraft && formula === 'deepseek_v4_hybrid') {
+  if (hasDraft && (formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41')) {
     $draftHint.textContent = 'Adds model-specific MTP/draft KV layers when enabled by the serving stack. DeepSeek V4 draft layers use ratio=0 sliding-window cache.';
   } else if (hasDraft) {
     $draftHint.textContent = 'Adds model-specific MTP/draft KV layers when enabled by the serving stack.';
   }
 
-  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(formula);
+  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(formula);
   $linearField.classList.toggle('hidden', !hasLinear);
 
   var result = calcKvCache(model, tokens, precB, idxB, { includeDraft: includeDraft, includeLinear: includeLinear, seqs: seqs });
@@ -383,8 +383,12 @@ function calculate() {
     metricsHtml += '<span class="metric-item">Indexer <span class="metric-val">' + formatMetric(result.idxBytes) + '</span></span>';
   }
   metricsHtml += '<span class="metric-sep">\u00b7</span>';
-  metricsHtml += '<span class="metric-item">Per Token <span class="metric-val">' + formatMetric(result.perTokenBytes) + '</span></span>';
+  metricsHtml += '<span class="metric-item">Per Token <span class="metric-val">' + fmtNum(result.perTokenBytes) + ' B/token</span></span>';
   $metricsCompact.innerHTML = metricsHtml;
+  if (result.globalCacheBytes !== null) {
+    $metricsCompact.innerHTML += '<span class="metric-sep">·</span><span class="metric-item" title="Global compressed KV + Indexer only; excludes fixed windows and Draft. FP4 for both selectors reproduces the official 890 B/token packed payload, not reference-runtime allocation.">Global KV + Indexer <span class="metric-val">'
+      + fmtNum(result.globalCacheBytes / tokens) + ' B/token</span> (官方 890：KV 与 Indexer 均选 FP4)</span>';
+  }
 
   if (result.formulas.length > 0) {
     $formulaSection.classList.remove('hidden');
@@ -404,7 +408,7 @@ function calculate() {
         vals.B = seqs;
       }
       var inputNames = { T: 1, B: 1, p: 1, p_idx: 1 };
-      var resultNames = { KV: 1, Total: 1, Idx: 1, KV_sw: 1, KV_cmp: 1, KV_r4: 1, KV_r128: 1, KV_f: 1, KV_s: 1, S_conv: 1, S_rec: 1 };
+      var resultNames = { KV: 1, Total: 1, Idx: 1, KV_sw: 1, KV_cmp: 1, KV_r4: 1, KV_r128: 1, KV_f: 1, KV_s: 1, KV_draft: 1, S_conv: 1, S_rec: 1 };
       var keys = Object.keys(vals).sort(function (a, b) { return b.length - a.length; });
       if (keys.length > 0) {
         var re = new RegExp('\\b(' + keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'g');

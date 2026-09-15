@@ -23,9 +23,12 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 | Standard GQA | Qwen3, Llama 3.x, Qwen2.5, MiniMax M2.x |
 | MLA (Multi-head Latent Attention) | DeepSeek V3, DeepSeek R1, Kimi K2.5/K2.6 |
 | KDA + Gated MLA (Kimi Delta Attention) | Kimi K3 |
-| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1/5.2 |
+| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1/5.2/5.3 |
+| CED + shared compressed KV | DeepSeek V4.1 Flash |
+| KDA linear + sparse MLA | GLM-5.3-Flash |
 | Mixed Full + Sliding Window | Gemma 4, Cohere Command, MiMo-V2.5 |
 | Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8 |
+| GDN linear + QSA | Qwen3.8-Flash-Next |
 
 ## Features
 
@@ -46,6 +49,32 @@ No build step required — just open `index.html` in a browser or serve the dire
 # Quick local server
 python3 -m http.server 8765
 ```
+
+### Cache sizing boundaries
+
+Deployment estimates split attention KV by effective KV heads (MLA is replicated
+across TP). GLM-5.3-Flash and Qwen3.8-Flash-Next linear states are split by whole
+heads only when divisible by TP, and are conservatively replicated across CP.
+Their single-key indexers and DeepSeek-V4.1's shared-key indexer are not divided
+by query-head TP. Backend support and actual allocation must still be verified.
+Qwen indexer tail layout and GLM/Qwen MTP indexer omission remain provisional;
+DeepSeek cross-PP source-cache sharing requires backend support. These estimates
+are not a guarantee that a given serving topology is supported or will fit.
+
+Run regression checks with `node tests/cache-regression.cjs`.
+
+DeepSeek V4.1 Flash global cache is owned by layers 2, 8, 14, 20. Eight
+layers run indexing, but only these four store indexer K; reindexing reuses K.
+With both cache precision selectors set to FP4, global storage per token is
+`(3/2 + 1) × [(512/2 + 512/16) + (128/2 + 128/32)] = 890 bytes`.
+The scale groups are 16 channels for main KV and 32 for indexer K.
+The total also includes fixed sliding-window storage and optional Draft, so
+it is not exactly 890 × tokens. Other precisions are custom payload estimates.
+This is packed storage, not the BF16 dequantized buffers of the minimal
+reference runtime; allocator, compressor work state and transient buffers
+are not included. The 1/4 claim is not a universal same-precision total ratio.
+Sources: [official implementation](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/main/inference/model.py),
+[official model card](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/main/README.md).
 
 ## License
 

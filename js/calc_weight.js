@@ -8,6 +8,10 @@ var WEIGHT_SYMBOL_NAMES = {
   I_s: 'shared_expert_intermediate_size',
   N_e: 'n_routed_experts', N_s: 'n_shared_experts',
   L_d: 'dense_ffn_layers', L_m: 'moe_ffn_layers',
+  L_idx: 'indexer_source_layers', h_idx: 'indexer_heads',
+  d_idx: 'indexer_head_dim', k_pool: 'indexer_pool_size',
+  h_idx_kv: 'indexer_kv_heads', qkv: 'linear_qkv_width',
+  h_l: 'linear_num_heads', d_l: 'linear_head_dim', g: 'o_groups',
 };
 
 var WEIGHT_BAR_COLOR_MAP = {
@@ -409,6 +413,111 @@ function calcWeight(model, wtPrecB) {
     breakdown.push({ label: 'Tie embeddings', value: tieEmbed ? 'Yes' : 'No' });
     breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
 
+  } else if (formula === 'deepseek_v41') {
+    // DeepSeek V4.1 CED attention. The compressed KV and indexer caches are
+    // source-owned at runtime, but their projection weights are counted once
+    // per source layer here rather than once per consuming layer.
+    var v41QLoraRank = wf.q_lora_rank || 0;
+    var v41OLoraRank = wf.o_lora_rank || 0;
+    var v41OGroups = wf.o_groups || 1;
+    var v41Hd = d_h;
+    var v41Wqa = h * v41QLoraRank;
+    var v41Wqb = v41QLoraRank * (n_q * v41Hd);
+    var v41Wkv = h * v41Hd;
+    var v41WoDown = (n_q * v41Hd / v41OGroups) * (v41OGroups * v41OLoraRank);
+    var v41WoUp = (v41OGroups * v41OLoraRank) * h;
+    var v41AttnPerLayer = v41Wqa + v41Wqb + v41Wkv + v41WoDown + v41WoUp;
+
+    var v41IdxHd = f.index_head_dim || 0;
+    var v41IdxHeads = f.index_n_heads || 0;
+    var v41IdxPool = f.index_kpool || 1;
+    var v41IndexSources = Array.isArray(f.index_source_layer_ids) ? f.index_source_layer_ids.length : 0;
+    var v41IdxPerSource = (v41QLoraRank * v41IdxHeads * v41IdxHd) + (h * v41IdxHd) + (h * v41IdxHeads) + (h * v41IdxHd) + (v41IdxHd * v41IdxPool);
+    var v41IdxParams = v41IndexSources * v41IdxPerSource;
+
+    var v41NRouted = wf.n_routed_experts || 0;
+    var v41NShared = wf.n_shared_experts || 0;
+    var v41Im = wf.moe_intermediate_size || 0;
+    var v41Is = wf.shared_expert_intermediate_size || v41Im;
+    var v41SharedPerLayer = v41NShared * ffnMats * h * v41Is;
+    var v41ExpertPerLayer = v41NRouted * ffnMats * h * v41Im;
+    var v41I = wf.intermediate_size || 0;
+    var v41DenseFfnPerLayer = ffnMats * h * v41I;
+    var v41DenseLayerCount = 0, v41MoeLayerCount = 0;
+    for (var v41LayerIndex = 0; v41LayerIndex < L; v41LayerIndex++) {
+      if (isMoeLayer(wf, v41LayerIndex)) v41MoeLayerCount++; else v41DenseLayerCount++;
+    }
+
+    attnParams = L * v41AttnPerLayer + v41IdxParams;
+    ffnDenseParams = v41DenseLayerCount * v41DenseFfnPerLayer;
+    ffnSharedParams = v41MoeLayerCount * v41SharedPerLayer;
+    ffnExpertParams = v41MoeLayerCount * v41ExpertPerLayer;
+    var v41TieEmbed = wf.tie_word_embeddings;
+    embedParams = v41TieEmbed ? (V * h) : (2 * V * h);
+
+    var v41EngramParams = 0;
+    if (Array.isArray(f.engram_num_embeddings)) {
+      f.engram_num_embeddings.forEach(function (count) { v41EngramParams += count * (f.engram_head_dim || 0); });
+    }
+
+    formulaTitle = model.label + ' CED attention';
+    formulas = [
+      { name: 'Attn', tip: 'CED attention per backbone layer: Q LoRA + one latent KV projection + grouped O LoRA.', expr: 'h×q_r + q_r×n_q×d_h + h×d_h + n_q×d_h×o_r + o_r×g×h', values: { h: h, q_r: v41QLoraRank, n_q: n_q, d_h: v41Hd, o_r: v41OLoraRank, g: v41OGroups }, resultValue: v41AttnPerLayer, bar: [{ type: 'attn', bytes: v41AttnPerLayer * wtPrecB }], ibarVal: fmtWNum(v41AttnPerLayer) },
+      { name: 'Idx', tip: 'Indexer projection weights are allocated only at index_source_layer_ids.', expr: 'L_idx × (q_r×h_idx×d_idx + h×d_idx + h×h_idx + h×d_idx + d_idx×k_pool)', values: { L_idx: v41IndexSources, q_r: v41QLoraRank, h_idx: v41IdxHeads, d_idx: v41IdxHd, h: h, k_pool: v41IdxPool }, resultValue: v41IdxParams, bar: [{ type: 'attn', bytes: v41IdxParams * wtPrecB }], ibarVal: fmtWNum(v41IdxParams) },
+    ];
+    if (v41DenseLayerCount > 0) formulas.push({ name: 'FFN_d', tip: 'Dense FFN per layer.', expr: ffnMats + '×h×I', values: { h: h, I: v41I }, resultValue: v41DenseFfnPerLayer, bar: [{ type: 'ffn-dense', bytes: v41DenseFfnPerLayer * wtPrecB }], ibarVal: fmtWNum(v41DenseFfnPerLayer) });
+    if (v41NRouted > 0) {
+      formulas.push(
+        { name: 'FFN_s', tip: 'Shared expert FFN per MoE layer.', expr: 'N_s×' + ffnMats + '×h×I_s', values: { N_s: v41NShared, h: h, I_s: v41Is }, resultValue: v41SharedPerLayer, bar: [{ type: 'ffn-shared', bytes: v41SharedPerLayer * wtPrecB }], ibarVal: fmtWNum(v41SharedPerLayer) },
+        { name: 'FFN_e', tip: 'Routed expert FFN per MoE layer.', expr: 'N_e×' + ffnMats + '×h×I_m', values: { N_e: v41NRouted, h: h, I_m: v41Im }, resultValue: v41ExpertPerLayer, bar: [{ type: 'ffn-expert', bytes: v41ExpertPerLayer * wtPrecB }], ibarVal: fmtWNum(v41ExpertPerLayer) }
+      );
+    }
+    formulas.push({ name: 'Embed', tip: v41TieEmbed ? 'Embedding only (tied with lm_head).' : 'Embedding + lm_head (untied).', expr: v41TieEmbed ? 'V×h' : '2×V×h', values: { V: V, h: h }, resultValue: embedParams, bar: [{ type: 'embed', bytes: embedParams * wtPrecB }], ibarVal: fmtWNum(embedParams) });
+
+    var v41AttnWithSource = v41AttnPerLayer + (L > 0 ? v41IdxParams / L : 0);
+    patterns = [];
+    if (v41DenseLayerCount > 0) {
+      var v41DenseTotal = v41AttnWithSource + v41DenseFfnPerLayer;
+      patterns.push({ segs: [{ type: 'attn', ratio: v41AttnWithSource / v41DenseTotal }, { type: 'ffn-dense', ratio: v41DenseFfnPerLayer / v41DenseTotal }], count: v41DenseLayerCount, label: 'CED + dense', bytes: v41DenseTotal * wtPrecB });
+    }
+    if (v41MoeLayerCount > 0) {
+      var v41MoeTotal = v41AttnWithSource + v41SharedPerLayer + v41ExpertPerLayer;
+      var v41MoeSegs = [{ type: 'attn', ratio: v41AttnWithSource / v41MoeTotal }];
+      if (v41NShared > 0) v41MoeSegs.push({ type: 'ffn-shared', ratio: v41SharedPerLayer / v41MoeTotal });
+      v41MoeSegs.push({ type: 'ffn-expert', ratio: v41ExpertPerLayer / v41MoeTotal });
+      patterns.push({ segs: v41MoeSegs, count: v41MoeLayerCount, label: 'CED + MoE', bytes: v41MoeTotal * wtPrecB });
+    }
+    legendTypes = v41NRouted > 0 ? ['attn', 'ffn-dense', 'ffn-shared', 'ffn-expert', 'embed'] : ['attn', 'ffn-dense', 'embed'];
+
+    breakdown = [
+      { label: 'CED backbone layers', value: fmtWNum(L) },
+      { label: 'Hidden size', value: fmtWNum(h) },
+      { label: 'Attention heads', value: fmtWNum(n_q) },
+      { label: 'Head dim', value: fmtWNum(v41Hd) },
+      { label: 'Q LoRA rank', value: fmtWNum(v41QLoraRank) },
+      { label: 'O LoRA rank', value: fmtWNum(v41OLoraRank) },
+      { label: 'O groups', value: fmtWNum(v41OGroups) },
+      { label: 'Attention per layer', value: fmtWNum(v41AttnPerLayer) },
+      { label: 'Indexer source layers', value: fmtWNum(v41IndexSources) },
+      { label: 'Indexer params per source', value: fmtWNum(v41IdxPerSource) },
+    ];
+    if (v41DenseLayerCount > 0) {
+      breakdown.push({ label: 'Dense FFN layers', value: fmtWNum(v41DenseLayerCount) });
+      breakdown.push({ label: 'Dense FFN per layer', value: fmtWNum(v41DenseFfnPerLayer) });
+    }
+    if (v41MoeLayerCount > 0) {
+      breakdown.push({ label: 'MoE FFN layers', value: fmtWNum(v41MoeLayerCount) });
+      breakdown.push({ label: 'Routed experts', value: fmtWNum(v41NRouted) });
+      breakdown.push({ label: 'Shared experts', value: fmtWNum(v41NShared) });
+      breakdown.push({ label: 'Expert intermediate size', value: fmtWNum(v41Im) });
+      breakdown.push({ label: 'Shared expert per layer', value: fmtWNum(v41SharedPerLayer) });
+      breakdown.push({ label: 'Routed expert per layer', value: fmtWNum(v41ExpertPerLayer) });
+    }
+    if (v41EngramParams > 0) breakdown.push({ label: 'Engram table params (external)', value: fmtWNum(v41EngramParams), tip: 'Conditional memory table; excluded from accelerator-resident transformer weight total.' });
+    breakdown.push({ label: 'Vocab size', value: fmtWNum(V) });
+    breakdown.push({ label: 'Tie embeddings', value: v41TieEmbed ? 'Yes' : 'No' });
+    breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
+
   } else if (formula === 'mixed_full_sliding_gqa') {
     var fullLayers = f.full_attention_layers || 0;
     var slidingLayers = f.sliding_attention_layers || 0;
@@ -661,6 +770,223 @@ function calcWeight(model, wtPrecB) {
     breakdown.push({ label: 'Tie embeddings', value: tieEmbed ? 'Yes' : 'No' });
     breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
 
+
+  } else if (formula === 'glm5_next_hybrid') {
+    // GLM-5.3-Flash alternates KDA linear layers with sparse MLA layers.
+    var glmLayerTypes = Array.isArray(f.layer_types) ? f.layer_types : [];
+    var glmConfiguredSparseIds = Array.isArray(f.sparse_attention_layer_ids) ? f.sparse_attention_layer_ids : [];
+    var glmSparseIds = glmConfiguredSparseIds.length > 0
+      ? glmConfiguredSparseIds
+      : (glmLayerTypes.length > 0
+        ? glmLayerTypes.map(function (type, index) { return type === 'deepseek_sparse_attention' ? index : -1; }).filter(function (index) { return index >= 0; })
+        : []);
+    var glmSparseLayers = glmSparseIds.length || f.sparse_attention_layers || 0;
+    var glmLinearLayers = f.linear_attention_layers || (L - glmSparseLayers);
+
+    var glmQLoraRank = wf.q_lora_rank || f.q_lora_rank || 0;
+    var glmQkRopeHd = f.qk_rope_head_dim || 0;
+    var glmQkNopeHd = f.qk_nope_head_dim || 0;
+    var glmKvLoraRank = f.kv_lora_rank || 0;
+    var glmQkHd = f.qk_head_dim || (glmQkNopeHd + glmQkRopeHd);
+    var glmVHeadDim = wf.v_head_dim || f.v_head_dim || glmQkHd;
+    var glmWqa = h * glmQLoraRank;
+    var glmWqb = glmQLoraRank * (n_q * glmQkHd);
+    var glmWkva = h * (glmKvLoraRank + glmQkRopeHd);
+    var glmWkvb = glmKvLoraRank * n_q * (glmQkNopeHd + glmVHeadDim);
+    var glmWo = (n_q * glmVHeadDim) * h;
+    var glmSparseAttnPerLayer = glmWqa + glmWqb + glmWkva + glmWkvb + glmWo;
+
+    var glmIdxHd = f.index_head_dim || 0;
+    var glmIdxHeads = f.index_n_heads || 0;
+    var glmIndexPool = f.index_kpool || 1;
+    var glmIdxPerLayer = (h * glmIdxHd) + (glmQLoraRank * glmIdxHeads * glmIdxHd) + (h * glmIdxHeads) + (glmIdxHd * glmIndexPool);
+
+    // KDA projections and state-control weights. dt/A and normalization
+    // vectors are small relative to these matrices and are intentionally not
+    // expanded into separate bars.
+    var glmLinearHeadCount = f.linear_num_heads || 0;
+    var glmLinearHeadDim = f.linear_head_dim || 0;
+    var glmLinearQkvDim = glmLinearHeadCount * glmLinearHeadDim;
+    var glmLinearAttnPerLayer = (3 * h * glmLinearQkvDim) + (3 * glmLinearQkvDim * (f.linear_conv_kernel_dim || 0)) + (h * glmLinearHeadDim) + (glmLinearHeadDim * glmLinearQkvDim) + (h * glmLinearHeadCount) + (h * glmLinearHeadDim) + (glmLinearHeadDim * glmLinearQkvDim) + (glmLinearQkvDim * h);
+
+    var glmNRouted = wf.n_routed_experts || 0;
+    var glmNShared = wf.n_shared_experts || 0;
+    var glmIm = wf.moe_intermediate_size || 0;
+    var glmIs = wf.shared_expert_intermediate_size || glmIm;
+    var glmI = wf.intermediate_size || 0;
+    var glmDenseFfnPerLayer = ffnMats * h * glmI;
+    var glmSharedPerLayer = glmNShared * ffnMats * h * glmIs;
+    var glmExpertPerLayer = glmNRouted * ffnMats * h * glmIm;
+    var glmDenseCount = 0, glmMoeCount = 0;
+    for (var glmLayerIndex = 0; glmLayerIndex < L; glmLayerIndex++) {
+      if (isMoeLayer(wf, glmLayerIndex)) glmMoeCount++; else glmDenseCount++;
+    }
+
+    attnParams = glmSparseLayers * (glmSparseAttnPerLayer + glmIdxPerLayer) + glmLinearLayers * glmLinearAttnPerLayer;
+    ffnDenseParams = glmDenseCount * glmDenseFfnPerLayer;
+    ffnSharedParams = glmMoeCount * glmSharedPerLayer;
+    ffnExpertParams = glmMoeCount * glmExpertPerLayer;
+    var glmTieEmbed = wf.tie_word_embeddings;
+    embedParams = glmTieEmbed ? (V * h) : (2 * V * h);
+
+    formulaTitle = model.label + ' KDA linear + sparse MLA';
+    formulas = [
+      { name: 'Attn_s', tip: 'Sparse MLA attention per sparse layer: Q/KV LoRA + output projection.', expr: 'h×q_r + q_r×n_q×qk + h×(d_c+d_r) + d_c×n_q×(qk_nope+d_v) + n_q×d_v×h', values: { h: h, q_r: glmQLoraRank, n_q: n_q, qk: glmQkHd, d_c: glmKvLoraRank, d_r: glmQkRopeHd, qk_nope: glmQkNopeHd, d_v: glmVHeadDim }, resultValue: glmSparseAttnPerLayer, bar: [{ type: 'attn', bytes: glmSparseAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(glmSparseAttnPerLayer) },
+      { name: 'Idx', tip: 'Indexer weights on sparse MLA layers only.', expr: 'h×d_idx + q_r×h_idx×d_idx + h×h_idx + d_idx×k_pool', values: { h: h, q_r: glmQLoraRank, h_idx: glmIdxHeads, d_idx: glmIdxHd, k_pool: glmIndexPool }, resultValue: glmIdxPerLayer, bar: [{ type: 'attn', bytes: glmIdxPerLayer * wtPrecB }], ibarVal: fmtWNum(glmIdxPerLayer) },
+      { name: 'Attn_l', tip: 'KDA linear attention per layer, including Q/K/V, short convolution, gates and output projection.', expr: '3×h×qkv + 3×qkv×k_c + h×d_l + d_l×qkv + h×h_l + h×d_l + d_l×qkv + qkv×h', values: { h: h, qkv: glmLinearQkvDim, k_c: f.linear_conv_kernel_dim || 0, d_l: glmLinearHeadDim, h_l: glmLinearHeadCount }, resultValue: glmLinearAttnPerLayer, bar: [{ type: 'attn', bytes: glmLinearAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(glmLinearAttnPerLayer) },
+    ];
+    if (glmDenseCount > 0) formulas.push({ name: 'FFN_d', tip: 'Dense FFN per layer.', expr: ffnMats + '×h×I', values: { h: h, I: glmI }, resultValue: glmDenseFfnPerLayer, bar: [{ type: 'ffn-dense', bytes: glmDenseFfnPerLayer * wtPrecB }], ibarVal: fmtWNum(glmDenseFfnPerLayer) });
+    if (glmNRouted > 0) {
+      formulas.push(
+        { name: 'FFN_s', tip: 'Shared expert FFN per MoE layer.', expr: 'N_s×' + ffnMats + '×h×I_s', values: { N_s: glmNShared, h: h, I_s: glmIs }, resultValue: glmSharedPerLayer, bar: [{ type: 'ffn-shared', bytes: glmSharedPerLayer * wtPrecB }], ibarVal: fmtWNum(glmSharedPerLayer) },
+        { name: 'FFN_e', tip: 'Routed expert FFN per MoE layer.', expr: 'N_e×' + ffnMats + '×h×I_m', values: { N_e: glmNRouted, h: h, I_m: glmIm }, resultValue: glmExpertPerLayer, bar: [{ type: 'ffn-expert', bytes: glmExpertPerLayer * wtPrecB }], ibarVal: fmtWNum(glmExpertPerLayer) }
+      );
+    }
+    formulas.push({ name: 'Embed', tip: glmTieEmbed ? 'Embedding only (tied with lm_head).' : 'Embedding + lm_head (untied).', expr: glmTieEmbed ? 'V×h' : '2×V×h', values: { V: V, h: h }, resultValue: embedParams, bar: [{ type: 'embed', bytes: embedParams * wtPrecB }], ibarVal: fmtWNum(embedParams) });
+
+    var glmSparseTotal = glmSparseAttnPerLayer + glmIdxPerLayer + (glmMoeCount > 0 ? glmSharedPerLayer + glmExpertPerLayer : glmDenseFfnPerLayer);
+    var glmLinearTotal = glmLinearAttnPerLayer + (glmMoeCount > 0 ? glmSharedPerLayer + glmExpertPerLayer : glmDenseFfnPerLayer);
+    var glmSparseSegs = [{ type: 'attn', ratio: (glmSparseAttnPerLayer + glmIdxPerLayer) / glmSparseTotal }];
+    var glmLinearSegs = [{ type: 'attn', ratio: glmLinearAttnPerLayer / glmLinearTotal }];
+    if (glmMoeCount > 0) {
+      if (glmNShared > 0) { glmSparseSegs.push({ type: 'ffn-shared', ratio: glmSharedPerLayer / glmSparseTotal }); glmLinearSegs.push({ type: 'ffn-shared', ratio: glmSharedPerLayer / glmLinearTotal }); }
+      glmSparseSegs.push({ type: 'ffn-expert', ratio: glmExpertPerLayer / glmSparseTotal });
+      glmLinearSegs.push({ type: 'ffn-expert', ratio: glmExpertPerLayer / glmLinearTotal });
+    } else {
+      glmSparseSegs.push({ type: 'ffn-dense', ratio: glmDenseFfnPerLayer / glmSparseTotal });
+      glmLinearSegs.push({ type: 'ffn-dense', ratio: glmDenseFfnPerLayer / glmLinearTotal });
+    }
+    patterns = [
+      { segs: glmSparseSegs, count: glmSparseLayers, label: 'sparse MLA + indexer', bytes: glmSparseTotal * wtPrecB },
+      { segs: glmLinearSegs, count: glmLinearLayers, label: 'KDA linear', bytes: glmLinearTotal * wtPrecB },
+    ];
+    legendTypes = glmNRouted > 0 ? ['attn', 'ffn-dense', 'ffn-shared', 'ffn-expert', 'embed'] : ['attn', 'ffn-dense', 'embed'];
+
+    breakdown = [
+      { label: 'Layers', value: fmtWNum(L) },
+      { label: 'Sparse MLA layers', value: fmtWNum(glmSparseLayers) },
+      { label: 'KDA linear layers', value: fmtWNum(glmLinearLayers) },
+      { label: 'Hidden size', value: fmtWNum(h) },
+      { label: 'Attention heads', value: fmtWNum(n_q) },
+      { label: 'KV LoRA rank', value: fmtWNum(glmKvLoraRank) },
+      { label: 'Sparse attention per layer', value: fmtWNum(glmSparseAttnPerLayer) },
+      { label: 'Indexer params per sparse layer', value: fmtWNum(glmIdxPerLayer) },
+      { label: 'KDA attention per layer', value: fmtWNum(glmLinearAttnPerLayer) },
+    ];
+    if (glmDenseCount > 0) {
+      breakdown.push({ label: 'Dense FFN layers', value: fmtWNum(glmDenseCount) });
+      breakdown.push({ label: 'Dense FFN per layer', value: fmtWNum(glmDenseFfnPerLayer) });
+    }
+    if (glmMoeCount > 0) {
+      breakdown.push({ label: 'MoE FFN layers', value: fmtWNum(glmMoeCount) });
+      breakdown.push({ label: 'Routed experts', value: fmtWNum(glmNRouted) });
+      breakdown.push({ label: 'Shared experts', value: fmtWNum(glmNShared) });
+      breakdown.push({ label: 'Expert intermediate size', value: fmtWNum(glmIm) });
+      breakdown.push({ label: 'Shared expert per layer', value: fmtWNum(glmSharedPerLayer) });
+      breakdown.push({ label: 'Routed expert per layer', value: fmtWNum(glmExpertPerLayer) });
+    }
+    breakdown.push({ label: 'Vocab size', value: fmtWNum(V) });
+    breakdown.push({ label: 'Tie embeddings', value: glmTieEmbed ? 'Yes' : 'No' });
+    breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
+
+  } else if (formula === 'qwen_qsa_gdn_hybrid') {
+    // Qwen3.8-Flash-Next has raw-GQA QSA layers and GDN linear layers. The
+    // auxiliary n-gram/PLE table is off-accelerator and is shown separately.
+    var qsaFullLayers = f.full_attention_layers || 0;
+    var qsaLinearLayers = f.linear_attention_layers || (L - qsaFullLayers);
+    var qsaFullAttnPerLayer = h * (n_q * d_h) + h * (h_kv * d_h) + h * (h_kv * d_h) + (n_q * d_h) * h;
+    var qsaLinKeyHeads = f.linear_num_key_heads || 0;
+    var qsaLinValueHeads = f.linear_num_value_heads || 0;
+    var qsaLinKeyHd = f.linear_key_head_dim || d_h;
+    var qsaLinValueHd = f.linear_value_head_dim || d_h;
+    var qsaLinearAttnPerLayer = h * (n_q * d_h) + h * (qsaLinKeyHeads * qsaLinKeyHd) + h * (qsaLinValueHeads * qsaLinValueHd) + (n_q * d_h) * h;
+    var qsaIdxHd = f.indexer_head_dim || 0;
+    var qsaIdxKvHeads = f.indexer_kv_heads || 1;
+    var qsaIdxHeads = f.indexer_n_heads || 0;
+    var qsaIdxPerFullLayer = (h * qsaIdxHd * qsaIdxKvHeads) + (h * qsaIdxHeads);
+
+    var qsaNRouted = wf.n_routed_experts || 0;
+    var qsaNShared = wf.n_shared_experts || 0;
+    var qsaIm = wf.moe_intermediate_size || 0;
+    var qsaIs = wf.shared_expert_intermediate_size || qsaIm;
+    var qsaI = wf.intermediate_size || 0;
+    var qsaDenseFfnPerLayer = ffnMats * h * qsaI;
+    var qsaSharedPerLayer = qsaNShared * ffnMats * h * qsaIs;
+    var qsaExpertPerLayer = qsaNRouted * ffnMats * h * qsaIm;
+    var qsaDenseCount = 0, qsaMoeCount = 0;
+    for (var qsaLayerIndex = 0; qsaLayerIndex < L; qsaLayerIndex++) {
+      if (isMoeLayer(wf, qsaLayerIndex)) qsaMoeCount++; else qsaDenseCount++;
+    }
+
+    attnParams = qsaFullLayers * (qsaFullAttnPerLayer + qsaIdxPerFullLayer) + qsaLinearLayers * qsaLinearAttnPerLayer;
+    ffnDenseParams = qsaDenseCount * qsaDenseFfnPerLayer;
+    ffnSharedParams = qsaMoeCount * qsaSharedPerLayer;
+    ffnExpertParams = qsaMoeCount * qsaExpertPerLayer;
+    var qsaTieEmbed = wf.tie_word_embeddings;
+    embedParams = qsaTieEmbed ? (V * h) : (2 * V * h);
+
+    var qsaNgramParams = (f.ngram_vocab_size_base || wf.ngram_vocab_size_base || 0) * (f.ple_embed_dim || wf.ple_embed_dim || 0);
+    formulaTitle = model.label + ' GDN linear + QSA';
+    formulas = [
+      { name: 'Attn_f', tip: 'QSA full-attention layer: raw GQA Q + K + V + O projections.', expr: 'h×n_q×d_h + 2×h×h_kv×d_h + n_q×d_h×h', values: { h: h, n_q: n_q, h_kv: h_kv, d_h: d_h }, resultValue: qsaFullAttnPerLayer, bar: [{ type: 'attn', bytes: qsaFullAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(qsaFullAttnPerLayer) },
+      { name: 'Idx', tip: 'QSA indexer projection per full-attention layer; indexer K cache remains MQA.', expr: 'h×h_idx_kv×d_idx + h×h_idx', values: { h: h, h_idx_kv: qsaIdxKvHeads, d_idx: qsaIdxHd, h_idx: qsaIdxHeads }, resultValue: qsaIdxPerFullLayer, bar: [{ type: 'attn', bytes: qsaIdxPerFullLayer * wtPrecB }], ibarVal: fmtWNum(qsaIdxPerFullLayer) },
+      { name: 'Attn_l', tip: 'GDN linear layer: shared Q plus linear K/V and output projections.', expr: 'h×n_q×d_h + h×h_kl×d_kl + h×h_vl×d_vl + n_q×d_h×h', values: { h: h, n_q: n_q, d_h: d_h, h_kl: qsaLinKeyHeads, d_kl: qsaLinKeyHd, h_vl: qsaLinValueHeads, d_vl: qsaLinValueHd }, resultValue: qsaLinearAttnPerLayer, bar: [{ type: 'attn', bytes: qsaLinearAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(qsaLinearAttnPerLayer) },
+    ];
+    if (qsaDenseCount > 0) formulas.push({ name: 'FFN_d', tip: 'Dense FFN per layer.', expr: ffnMats + '×h×I', values: { h: h, I: qsaI }, resultValue: qsaDenseFfnPerLayer, bar: [{ type: 'ffn-dense', bytes: qsaDenseFfnPerLayer * wtPrecB }], ibarVal: fmtWNum(qsaDenseFfnPerLayer) });
+    if (qsaNRouted > 0) {
+      formulas.push(
+        { name: 'FFN_s', tip: 'Shared expert FFN per MoE layer.', expr: 'N_s×' + ffnMats + '×h×I_s', values: { N_s: qsaNShared, h: h, I_s: qsaIs }, resultValue: qsaSharedPerLayer, bar: [{ type: 'ffn-shared', bytes: qsaSharedPerLayer * wtPrecB }], ibarVal: fmtWNum(qsaSharedPerLayer) },
+        { name: 'FFN_e', tip: 'Routed expert FFN per MoE layer.', expr: 'N_e×' + ffnMats + '×h×I_m', values: { N_e: qsaNRouted, h: h, I_m: qsaIm }, resultValue: qsaExpertPerLayer, bar: [{ type: 'ffn-expert', bytes: qsaExpertPerLayer * wtPrecB }], ibarVal: fmtWNum(qsaExpertPerLayer) }
+      );
+    }
+    formulas.push({ name: 'Embed', tip: qsaTieEmbed ? 'Embedding only (tied with lm_head).' : 'Embedding + lm_head (untied).', expr: qsaTieEmbed ? 'V×h' : '2×V×h', values: { V: V, h: h }, resultValue: embedParams, bar: [{ type: 'embed', bytes: embedParams * wtPrecB }], ibarVal: fmtWNum(embedParams) });
+
+    var qsaFullTotal = qsaFullAttnPerLayer + qsaIdxPerFullLayer + (qsaMoeCount > 0 ? qsaSharedPerLayer + qsaExpertPerLayer : qsaDenseFfnPerLayer);
+    var qsaLinearTotal = qsaLinearAttnPerLayer + (qsaMoeCount > 0 ? qsaSharedPerLayer + qsaExpertPerLayer : qsaDenseFfnPerLayer);
+    var qsaFullSegs = [{ type: 'attn', ratio: (qsaFullAttnPerLayer + qsaIdxPerFullLayer) / qsaFullTotal }];
+    var qsaLinearSegs = [{ type: 'attn', ratio: qsaLinearAttnPerLayer / qsaLinearTotal }];
+    if (qsaMoeCount > 0) {
+      if (qsaNShared > 0) { qsaFullSegs.push({ type: 'ffn-shared', ratio: qsaSharedPerLayer / qsaFullTotal }); qsaLinearSegs.push({ type: 'ffn-shared', ratio: qsaSharedPerLayer / qsaLinearTotal }); }
+      qsaFullSegs.push({ type: 'ffn-expert', ratio: qsaExpertPerLayer / qsaFullTotal });
+      qsaLinearSegs.push({ type: 'ffn-expert', ratio: qsaExpertPerLayer / qsaLinearTotal });
+    } else {
+      qsaFullSegs.push({ type: 'ffn-dense', ratio: qsaDenseFfnPerLayer / qsaFullTotal });
+      qsaLinearSegs.push({ type: 'ffn-dense', ratio: qsaDenseFfnPerLayer / qsaLinearTotal });
+    }
+    patterns = [
+      { segs: qsaFullSegs, count: qsaFullLayers, label: 'QSA full + indexer', bytes: qsaFullTotal * wtPrecB },
+      { segs: qsaLinearSegs, count: qsaLinearLayers, label: 'GDN linear', bytes: qsaLinearTotal * wtPrecB },
+    ];
+    legendTypes = qsaNRouted > 0 ? ['attn', 'ffn-dense', 'ffn-shared', 'ffn-expert', 'embed'] : ['attn', 'ffn-dense', 'embed'];
+
+    breakdown = [
+      { label: 'Layers', value: fmtWNum(L) },
+      { label: 'QSA full layers', value: fmtWNum(qsaFullLayers) },
+      { label: 'GDN linear layers', value: fmtWNum(qsaLinearLayers) },
+      { label: 'Hidden size', value: fmtWNum(h) },
+      { label: 'Full attention heads', value: fmtWNum(n_q) },
+      { label: 'Full KV heads', value: fmtWNum(h_kv) },
+      { label: 'Full head dim', value: fmtWNum(d_h) },
+      { label: 'Full attn per layer', value: fmtWNum(qsaFullAttnPerLayer) },
+      { label: 'Indexer params per full layer', value: fmtWNum(qsaIdxPerFullLayer) },
+      { label: 'Linear attn per layer', value: fmtWNum(qsaLinearAttnPerLayer) },
+    ];
+    if (qsaDenseCount > 0) {
+      breakdown.push({ label: 'Dense FFN layers', value: fmtWNum(qsaDenseCount) });
+      breakdown.push({ label: 'Dense FFN per layer', value: fmtWNum(qsaDenseFfnPerLayer) });
+    }
+    if (qsaMoeCount > 0) {
+      breakdown.push({ label: 'MoE FFN layers', value: fmtWNum(qsaMoeCount) });
+      breakdown.push({ label: 'Routed experts', value: fmtWNum(qsaNRouted) });
+      breakdown.push({ label: 'Shared experts', value: fmtWNum(qsaNShared) });
+      breakdown.push({ label: 'Expert intermediate size', value: fmtWNum(qsaIm) });
+      breakdown.push({ label: 'Shared expert per layer', value: fmtWNum(qsaSharedPerLayer) });
+      breakdown.push({ label: 'Routed expert per layer', value: fmtWNum(qsaExpertPerLayer) });
+    }
+    if (qsaNgramParams > 0) breakdown.push({ label: 'N-gram / PLE params (external)', value: fmtWNum(qsaNgramParams), tip: 'Auxiliary n-gram table; excluded from accelerator-resident transformer weight total and from KV cache.' });
+    breakdown.push({ label: 'Vocab size', value: fmtWNum(V) });
+    breakdown.push({ label: 'Tie embeddings', value: qsaTieEmbed ? 'Yes' : 'No' });
+    breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
 
   } else if (formula === 'kda_gated_mla') {
     var fullLayers = f.full_attention_layers || 0;

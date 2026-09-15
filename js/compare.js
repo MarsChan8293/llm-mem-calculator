@@ -276,18 +276,18 @@ refresh();
 
 function updateConditionalFields() {
   var hasIndexer = selectedModels.some(function (m) {
-    return ['deepseek_v4_hybrid', 'dsa_mla', 'msa_gqa'].includes(m.formula);
+    return ['deepseek_v4_hybrid', 'deepseek_v41', 'dsa_mla', 'msa_gqa', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(m.formula);
   });
   $idxPrecField.classList.toggle('hidden', !hasIndexer);
 
   var hasDraft = selectedModels.some(function (m) {
     var f = m.fields;
-    return m.formula !== 'qwen_linear_full_hybrid' && (f.num_nextn_predict_layers || f.mtp_transformer_layers);
+    return m.formula !== 'qwen_linear_full_hybrid' && (f.num_nextn_predict_layers || f.mtp_transformer_layers || (m.formula === 'qwen_qsa_gdn_hybrid' && f.mtp_num_hidden_layers));
   });
   $draftField.classList.toggle('hidden', !hasDraft);
 
   var hasLinear = selectedModels.some(function (m) {
-    return ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(m.formula);
+    return ['qwen_linear_full_hybrid', 'kda_gated_mla', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(m.formula);
   });
   $linearField.classList.toggle('hidden', !hasLinear);
 

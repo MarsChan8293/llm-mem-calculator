@@ -242,8 +242,8 @@ function updateConditionalFields() {
   var hasMoE = (wf.n_routed_experts || 0) > 0;
   var hasIndexer = modelHasIndexer(model);
   var hasAbsorption = modelSupportsAbsorption(model);
-  var hasDraft = !!(model.fields.mtp_transformer_layers);
-  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla'].includes(model.formula);
+  var hasDraft = !!(model.fields.mtp_transformer_layers || model.fields.num_nextn_predict_layers || (model.formula === 'qwen_qsa_gdn_hybrid' && model.fields.mtp_num_hidden_layers));
+  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(model.formula);
 
   $epItem.style.display = hasMoE ? '' : 'none';
   $idxPrecField.style.display = hasIndexer ? '' : 'none';
@@ -439,9 +439,7 @@ function renderCapacityFlow(result, opts, label) {
   var idxParallelNote = result.kvBreakdown && result.kvBreakdown.idxPerGPU > 0
     ? ' Indexer KV uses TP_idx=' + result.idxTpSplit + ' and CP=' + result.kvCpSplit + '.'
     : '';
-  var kvParallelNote = result.kvTpSplit === 1
-    ? 'MLA KV is replicated across TP ranks and split only by CP=' + result.kvCpSplit + '.' + idxParallelNote
-    : 'KV is split across TP=' + result.kvTpSplit + ' and CP=' + result.kvCpSplit + '.' + idxParallelNote;
+  var kvParallelNote = result.cacheNote + idxParallelNote;
   var weightFitsBudget = limitingWeight <= runtimeBudget;
   var isWithinCapacity = weightFitsBudget && result.maxConcurrency !== null && (opts.batch || 1) <= result.maxConcurrency;
   var statusClass = isWithinCapacity ? 'capacity-ok' : 'capacity-over';
@@ -895,10 +893,7 @@ function renderUnified(result, model, opts) {
   var idxSplitNote = result.kvBreakdown && result.kvBreakdown.idxPerGPU > 0
     ? ' Indexer KV uses TP_idx=' + result.idxTpSplit + ' and CP=' + result.kvCpSplit + '.'
     : '';
-  var kvSplitNote = result.kvTpSplit === 1
-    ? 'MLA KV is replicated across TP and split only by CP=' + result.kvCpSplit + '.' + idxSplitNote
-    : 'KV is split across TP=' + result.kvTpSplit + ' and CP=' + result.kvCpSplit + '.' + idxSplitNote;
-  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. ' + kvSplitNote + ' KV space is the remaining per-GPU capacity for cache after weights, the ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% vLLM headroom, and the ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB reserve. Max concurrency is the conservative floor across pipeline stages for the selected context length. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
+  $noteSection.textContent = 'Per-GPU estimates use \u00f7TP for attention/dense/shared-expert/embed, \u00f7EP for routed experts. ' + result.cacheNote + idxSplitNote + ' KV space is the remaining per-GPU capacity for cache after weights, the ' + ((1 - VLLM_GPU_MEMORY_UTILIZATION) * 100).toFixed(0) + '% vLLM headroom, and the ' + VLLM_CUDA_GRAPH_OVERHEAD_GB + ' GB reserve. Max concurrency is the conservative floor across pipeline stages for the selected context length. Indexer TP may differ from model TP. Activations, framework overhead, and communication buffers remain excluded.';
   $sourceLink.href = model.source_url;
   $sourceLink.textContent = 'Source: ' + model.source_url;
 }

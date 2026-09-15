@@ -69,16 +69,48 @@ function calcDeploy(model, opts) {
   return calcDeployUnified(model, opts);
 }
 
+function sumLayerCacheBytes(layerBytes, startLayer, endLayer) {
+  if (!Array.isArray(layerBytes)) return 0;
+  var total = 0;
+  for (var layer = startLayer; layer <= endLayer; layer++) total += layerBytes[layer] || 0;
+  return total;
+}
+
+// Cache heads, not query heads, bound ordinary tensor-parallel sharding.
+// For unsupported uneven head partitions use replication conservatively.
+function cacheHeadSplit(heads, tp) {
+  if (!heads) return 1;
+  if (heads % tp === 0) return tp;
+  if (tp % heads === 0) return heads;
+  return 1;
+}
+
+function cacheTopology(model, opts) {
+  var tp = opts.tp || 1;
+  var f = model.fields;
+  var linearTp = 1;
+  if (model.formula === 'glm5_next_hybrid' && f.linear_num_heads % tp === 0) linearTp = tp;
+  if (model.formula === 'qwen_qsa_gdn_hybrid' &&
+      f.linear_num_key_heads % tp === 0 && f.linear_num_value_heads % tp === 0) linearTp = tp;
+  var sharedIndexer = ['deepseek_v41', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(model.formula);
+  return {
+    kvTp: modelUsesMlaKv(model) ? 1 : cacheHeadSplit(f.num_key_value_heads, tp),
+    linearTp: linearTp,
+    idxTp: sharedIndexer ? 1 : (opts.idxTp || tp),
+  };
+}
+
 function calcDeployUnified(model, opts) {
   var tp = opts.tp || 1;
   var pp = opts.pp || 1;
   var ep = opts.ep || 1;
   var dp = opts.dp || 1;
   var cp = opts.cp || 1;
-  var idxTp = opts.idxTp || tp;
+  var topology = cacheTopology(model, opts);
+  var idxTp = topology.idxTp;
   // MLA stores a shared latent KV representation. It is replicated across
   // tensor-parallel ranks and only partitioned along the context dimension.
-  var kvTp = modelUsesMlaKv(model) ? 1 : tp;
+  var kvTp = topology.kvTp;
 
   var f = model.fields;
   var wf = model.weight_fields || {};
@@ -106,18 +138,19 @@ function calcDeployUnified(model, opts) {
     includeDraft: opts.includeDraft,
     includeLinear: opts.includeLinear,
   });
-  var kvPerLayerSingle = L > 0 ? kvResult.kvBytes / L : 0;
+  var mainKvBytes = kvResult.mainKvBytes == null ? kvResult.kvBytes : kvResult.mainKvBytes;
+  var kvPerLayerSingle = L > 0 ? mainKvBytes / L : 0;
   var idxPerLayerSingle = (kvResult.idxLayers || L) > 0 ? kvResult.idxBytes / (kvResult.idxLayers || L) : 0;
   var idxL = kvResult.idxLayers || L;
 
-  var layersPerStage = Math.ceil(L / pp);
   var stages = [];
   var maxStageWeightPerGPU = 0;
   var maxStageTotalPerGPU = 0;
 
   for (var s = 0; s < pp; s++) {
-    var startLayer = s * layersPerStage;
-    var endLayer = Math.min((s + 1) * layersPerStage - 1, L - 1);
+    var startLayer = Math.floor(s * L / pp);
+    var endLayer = Math.floor((s + 1) * L / pp) - 1;
+    if (endLayer < startLayer) continue;
     if (startLayer > L - 1) break;
     var stageLayerCount = endLayer - startLayer + 1;
 
@@ -137,8 +170,21 @@ function calcDeployUnified(model, opts) {
 
     var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU;
 
-    var sKvPerGPU = stageLayerCount * kvPerLayerSingle * opts.batch / (kvTp * cp);
-    var sIdxPerGPU = (stageLayerCount / L) * kvResult.idxBytes * opts.batch / (idxTp * cp);
+    var stageKvBytes = kvResult.kvLayerBytes
+      ? sumLayerCacheBytes(kvResult.kvLayerBytes, startLayer, endLayer)
+      : stageLayerCount * kvPerLayerSingle;
+    // Draft/DSpark/MTP layers are appended after the main transformer and are
+    // resident on the final PP stage in this calculator.
+    if (s === pp - 1 && kvResult.draftKvBytes) stageKvBytes += kvResult.draftKvBytes;
+    var stageIdxBytes = kvResult.idxLayerBytes
+      ? sumLayerCacheBytes(kvResult.idxLayerBytes, startLayer, endLayer)
+      : (stageLayerCount / L) * kvResult.idxBytes;
+    var stageLinearBytes = sumLayerCacheBytes(kvResult.linearLayerBytes, startLayer, endLayer);
+    // Recurrent/conv states have no token axis to divide by CP. Replicate
+    // across CP ranks; shard whole linear heads only for divisible TP.
+    var sKvPerGPU = ((stageKvBytes - stageLinearBytes) / (kvTp * cp)
+      + stageLinearBytes / topology.linearTp) * opts.batch;
+    var sIdxPerGPU = stageIdxBytes * opts.batch / (idxTp * cp);
 
     var sTotalPerGPU = sWeightPerGPU + sKvPerGPU + sIdxPerGPU;
 
@@ -236,6 +282,14 @@ function calcDeployUnified(model, opts) {
     kvTpSplit: kvTp,
     kvCpSplit: cp,
     idxTpSplit: idxTp,
+    cacheNote: 'Attention KV uses effective TP split=' + kvTp + ' and CP=' + cp
+      + '. Fixed linear state, where included, uses TP split=' + topology.linearTp
+      + ' and is not divided by CP. Single-key indexers use replicated TP storage. '
+      + (['glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(model.formula)
+        ? 'Provisional estimate: indexer tail/MTP layout and backend topology support require verification. '
+        : '')
+      + (model.formula === 'deepseek_v41' && pp > 1
+        ? 'Source-owned cache sharing across PP stages requires backend support. ' : ''),
     kvSpacePerGPU: kvSpacePerGPU === null ? 0 : kvSpacePerGPU,
     maxConcurrency: maxConcurrency,
     concurrencyBottleneck: concurrencyBottleneck,
@@ -266,9 +320,10 @@ function calcDeployUnified(model, opts) {
 function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   var tp = opts.tp || 1;
   var ep = opts.ep || 1;
-  var idxTp = opts.idxTp || tp;
+  var topology = cacheTopology(model, opts);
+  var idxTp = topology.idxTp;
   var cp = opts.cp || 1;
-  var kvTp = modelUsesMlaKv(model) ? 1 : tp;
+  var kvTp = topology.kvTp;
   var wf = model.weight_fields || {};
   var f = model.fields;
   var L = f.num_hidden_layers;
@@ -292,11 +347,26 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   var expertPerLayer = moeLayerCount > 0 ? weightResult.ffnExpertParams / moeLayerCount : 0;
   var perExpertParams = nRouted > 0 && moeLayerCount > 0 ? weightResult.ffnExpertParams / (nRouted * moeLayerCount) : 0;
 
-  var kvPerLayerSingle = L > 0 ? kvResult.kvBytes / L : 0;
+  var mainKvBytes = kvResult.mainKvBytes == null ? kvResult.kvBytes : kvResult.mainKvBytes;
+  var kvPerLayerSingle = L > 0 ? mainKvBytes / L : 0;
   var idxPerLayerSingle = (kvResult.idxLayers || L) > 0 ? kvResult.idxBytes / (kvResult.idxLayers || L) : 0;
   var idxL = kvResult.idxLayers || L;
 
+  var linearBytes = sumLayerCacheBytes(kvResult.linearLayerBytes, 0, L - 1);
+  kvPerLayerSingle = (mainKvBytes - linearBytes) / L;
   var formulas = [];
+  if (linearBytes > 0) {
+    var linearPerGPU = linearBytes * batch / topology.linearTp;
+    formulas.push({
+      name: 'Linear state/linear_tp',
+      tip: 'Fixed convolution and FP32 recurrent state: whole-head TP sharding when divisible; replicated across CP. Backend support must be verified.',
+      expr: 'State×B/linear_tp',
+      values: { State: fmtWBytes(linearBytes), B: batch, linear_tp: topology.linearTp },
+      resultValue: linearPerGPU,
+      bar: [{ type: 'kv', bytes: linearPerGPU }],
+      ibarVal: fmtWBytes(linearPerGPU),
+    });
+  }
 
   formulas.push({
     name: 'Attn/tp',
@@ -356,18 +426,30 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
   });
 
   formulas.push({
-    name: modelUsesMlaKv(model) ? 'KV/cp' : 'KV/(tp\u00d7cp)',
+    name: 'Attention KV/(kv_tp×cp)',
     tip: modelUsesMlaKv(model)
       ? 'MLA KV is replicated across TP ranks and split along the context dimension by CP.'
-      : 'KV cache per layer, split by TP and CP, times batch.',
+      : 'Attention KV uses effective KV-head TP splitting, capped by KV heads; fixed linear state is separate.',
     expr: modelUsesMlaKv(model) ? 'KV\u00d7L\u00d7B/cp' : 'KV\u00d7L\u00d7B/(tp\u00d7cp)',
     values: modelUsesMlaKv(model)
       ? { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, cp: cp }
-      : { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, tp: tp, cp: cp },
+      : { KV: fmtWBytes(kvPerLayerSingle), L: L, B: batch, tp: kvTp, cp: cp },
     resultValue: kvPerLayerSingle * L * batch / (kvTp * cp),
     bar: [{ type: 'kv', bytes: kvPerLayerSingle * L * batch / (kvTp * cp) }],
     ibarVal: fmtWBytes(kvPerLayerSingle * L * batch / (kvTp * cp)),
   });
+
+  if (kvResult.draftKvBytes > 0) {
+    formulas.push({
+      name: 'KV_draft',
+      tip: 'Optional draft/MTP cache placed on the final pipeline stage.',
+      expr: 'KV_draft×B/(tp×cp)',
+      values: { KV_draft: fmtWBytes(kvResult.draftKvBytes), B: batch, tp: kvTp, cp: cp },
+      resultValue: kvResult.draftKvBytes * batch / (kvTp * cp),
+      bar: [{ type: 'kv', bytes: kvResult.draftKvBytes * batch / (kvTp * cp) }],
+      ibarVal: fmtWBytes(kvResult.draftKvBytes * batch / (kvTp * cp)),
+    });
+  }
 
   if (idxPerLayerSingle > 0) {
     var idxExpr = 'Idx\u00d7' + (idxL !== L ? 'L_idx' : 'L') + '\u00d7B/(tp_idx\u00d7cp)';
@@ -421,16 +503,16 @@ function getDeployDefaults(model) {
 
 function modelHasIndexer(model) {
   var formula = model.formula;
-  return formula === 'deepseek_v4_hybrid' || formula === 'dsa_mla' || formula === 'msa_gqa';
+  return formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'dsa_mla' || formula === 'msa_gqa' || formula === 'glm5_next_hybrid' || formula === 'qwen_qsa_gdn_hybrid';
 }
 
 function modelUsesMlaKv(model) {
   // DeepSeek V4's hybrid sliding/compressed cache is still a latent KV
   // payload: it is replicated across TP ranks and only sharded by CP.
-  return ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'kda_gated_mla'].includes(model.formula);
+  return ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'deepseek_v41', 'glm5_next_hybrid', 'kda_gated_mla'].includes(model.formula);
 }
 
 function modelSupportsAbsorption(model) {
   var formula = model.formula;
-  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid' || formula === 'kda_gated_mla';
+  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'glm5_next_hybrid' || formula === 'kda_gated_mla';
 }
