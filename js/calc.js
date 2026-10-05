@@ -292,120 +292,125 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
   // ── deepseek_v4_hybrid ──
   } else if (formula === 'deepseek_v4_hybrid') {
-    const ratios = f.compress_ratios;
+    const ratios = f.compress_ratios || [];
     const sw = f.sliding_window;
     const hd = f.head_dim;
     const idxHd = f.index_head_dim;
     const totalLayers = f.num_hidden_layers;
 
-    // Count layers by ratio
+    // Official DeepSeek V4 configs may append MTP/DSpark ratios after the
+    // backbone ratios. Keep those layers separate: leading backbone r=0
+    // layers are real target layers and must never be mistaken for Draft.
+    const mainRatios = ratios.slice(0, totalLayers);
+    const configuredDraftLayers = f.num_nextn_predict_layers != null
+      ? f.num_nextn_predict_layers
+      : Math.max(0, ratios.length - totalLayers);
+    const draftRatios = ratios.slice(totalLayers, totalLayers + configuredDraftLayers);
+    while (draftRatios.length < configuredDraftLayers) draftRatios.push(0);
+
     const ratioCounts = {};
-    ratios.forEach(function (r) { ratioCounts[r] = (ratioCounts[r] || 0) + 1; });
-    const activeLayers = ratios.filter(function (r) { return r > 0; }).length;
+    mainRatios.forEach(function (r) { ratioCounts[r] = (ratioCounts[r] || 0) + 1; });
     const ratio0Layers = ratioCounts[0] || 0;
     const ratio4Layers = ratioCounts[4] || 0;
     const ratio128Layers = ratioCounts[128] || 0;
 
-    // Sliding window KV: ALL layers contribute to the sliding window
     const slidingElements = totalLayers * sw * hd;
-    // Compressed KV: sum over ratio>0 layers of floor(tokens/ratio) * hd
     var compressedElements = 0;
-    ratios.forEach(function (r) {
-      if (r > 0) compressedElements += Math.floor(tokens / r) * hd;
+    var idxElements = 0;
+    kvLayerBytes = new Array(totalLayers).fill(0);
+    idxLayerBytes = new Array(totalLayers).fill(0);
+    mainRatios.forEach(function (r, layer) {
+      var layerKv = sw * hd;
+      if (r > 0) {
+        var compressed = Math.floor(tokens / r) * hd;
+        compressedElements += compressed;
+        layerKv += compressed;
+      }
+      kvLayerBytes[layer] = layerKv * precB;
+      if (r === 4) {
+        var layerIdx = Math.floor(tokens / 4) * idxHd;
+        idxElements += layerIdx;
+        idxLayerBytes[layer] = layerIdx * idxB;
+      }
     });
+
     const kvElements = slidingElements + compressedElements;
-    kvBytes = kvElements * precB;
-
-    // Ratio=0 layers: only sliding window
-    const ratio0Elements = ratio0Layers * sw * hd;
-
-    // Indexer: ratio=4 layers
-    const idxElements = ratio4Layers * Math.floor(tokens / 4) * idxHd;
+    mainKvBytes = kvElements * precB;
     idxBytes = idxElements * idxB;
+    idxLayers = ratio4Layers;
 
-    perTokenBytes = (kvElements / tokens) * precB + (idxElements / tokens) * idxB;
-
-    var draftKvBytes = 0;
-    var draftLayers = 0;
+    var draftElements = 0;
+    var draftLayers = includeDraft ? configuredDraftLayers : 0;
     if (includeDraft) {
-      draftLayers = ratio0Layers;
-      draftKvBytes = ratio0Elements * precB;
+      draftRatios.forEach(function (r) {
+        draftElements += sw * hd;
+        if (r > 0) draftElements += Math.floor(tokens / r) * hd;
+      });
     }
+    draftKvBytes = draftElements * precB;
+    kvBytes = mainKvBytes + draftKvBytes;
+    perTokenBytes = (kvBytes + idxBytes) / tokens;
 
-    const totalKvBytes = kvBytes + draftKvBytes;
-
+    const ratio0Elements = ratio0Layers * sw * hd;
     formulaTitle = model.label + ' hybrid sparse attention';
     var v4WindowPerLayer = sw * hd * precB;
     var v4CompressR4PerLayer = Math.floor(tokens / 4) * hd * precB;
     var v4CompressR128PerLayer = Math.floor(tokens / 128) * hd * precB;
     var v4IdxR4PerLayer = Math.floor(tokens / 4) * idxHd * idxB;
-    // Total bar window segment includes draft contribution
-    var v4TotalWindowBytes = totalKvBytes - compressedElements * precB;
     var v4CompressR4Bytes = ratio4Layers * v4CompressR4PerLayer;
     var v4CompressR128Bytes = ratio128Layers * v4CompressR128PerLayer;
     formulas = [
-      { name: 'KV_sw', tip: 'ALL layers contribute to the sliding window KV, including ratio=0 layers.', expr: 'L \u00d7 W \u00d7 d_h \u00d7 p', values: { L: totalLayers, W: sw, d_h: hd, p: precB }, resultValue: slidingElements * precB, bar: [{ type: 'window', bytes: slidingElements * precB }], ibarVal: fmtBytes(slidingElements * precB) },
-      { name: 'KV_r4', tip: 'Compressed KV from ratio=4 layers; each layer keeps floor(T/4) compressed slots.', expr: 'L_4 \u00d7 \u230aT/4\u230b \u00d7 d_h \u00d7 p', values: { L_4: ratio4Layers, T: tokens, d_h: hd, p: precB }, resultValue: v4CompressR4Bytes, bar: [{ type: 'compressed', bytes: v4CompressR4Bytes }], ibarVal: fmtBytes(v4CompressR4Bytes) },
-      { name: 'KV_r128', tip: 'Compressed KV from ratio=128 layers; each layer keeps floor(T/128) compressed slots.', expr: 'L_128 \u00d7 \u230aT/128\u230b \u00d7 d_h \u00d7 p', values: { L_128: ratio128Layers, T: tokens, d_h: hd, p: precB }, resultValue: v4CompressR128Bytes, bar: [{ type: 'compressed', bytes: v4CompressR128Bytes }], ibarVal: fmtBytes(v4CompressR128Bytes) },
-      { name: 'KV_cmp', tip: 'Total compressed KV cache from all layers with compress_ratio > 0.', expr: 'KV_r4 + KV_r128', values: { KV_r4: v4CompressR4Bytes, KV_r128: v4CompressR128Bytes }, resultValue: compressedElements * precB, bar: [{ type: 'compressed', bytes: v4CompressR4Bytes }, { type: 'compressed', bytes: v4CompressR128Bytes }], ibarVal: fmtBytes(compressedElements * precB) },
-      { name: 'KV', tip: 'Main ' + model.label + ' KV cache before adding the separate indexer cache.', expr: 'KV_sw + KV_cmp', values: { KV_sw: kvBytes, KV_cmp: compressedElements * precB }, resultValue: kvBytes, bar: [{ type: 'window', bytes: slidingElements * precB }, { type: 'compressed', bytes: compressedElements * precB }], ibarVal: fmtBytes(kvBytes) },
-      { name: 'Idx', tip: 'Ratio=4 layers keep an extra compressed indexer cache that can use a separate precision.', expr: 'L_4 \u00d7 \u230aT/4\u230b \u00d7 d_idx \u00d7 p_idx', values: { L_4: ratio4Layers, T: tokens, d_idx: idxHd, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) },
-      { name: 'Total', tip: 'Combined ' + model.label + ' cache payload for all concurrent sequences.', expr: 'B \u00d7 (KV + Idx)', values: { KV: totalKvBytes, Idx: idxBytes }, resultValue: totalKvBytes + idxBytes, bar: [{ type: 'window', bytes: v4TotalWindowBytes }, { type: 'compressed', bytes: compressedElements * precB }, { type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(seqs * (totalKvBytes + idxBytes)) }
+      { name: 'KV_sw', tip: 'Every backbone layer keeps a sliding-window latent KV vector, including backbone r=0 layers.', expr: 'L × W × d_h × p', values: { L: totalLayers, W: sw, d_h: hd, p: precB }, resultValue: slidingElements * precB, bar: [{ type: 'window', bytes: slidingElements * precB }], ibarVal: fmtBytes(slidingElements * precB) },
+      { name: 'KV_r4', tip: 'Compressed KV from backbone ratio=4 layers.', expr: 'L_4 × ⌊T/4⌋ × d_h × p', values: { L_4: ratio4Layers, T: tokens, d_h: hd, p: precB }, resultValue: v4CompressR4Bytes, bar: [{ type: 'compressed', bytes: v4CompressR4Bytes }], ibarVal: fmtBytes(v4CompressR4Bytes) },
+      { name: 'KV_r128', tip: 'Compressed KV from backbone ratio=128 layers.', expr: 'L_128 × ⌊T/128⌋ × d_h × p', values: { L_128: ratio128Layers, T: tokens, d_h: hd, p: precB }, resultValue: v4CompressR128Bytes, bar: [{ type: 'compressed', bytes: v4CompressR128Bytes }], ibarVal: fmtBytes(v4CompressR128Bytes) },
+      { name: 'KV_cmp', tip: 'Total compressed KV from backbone layers only; appended Draft/MTP ratios are handled separately.', expr: 'KV_r4 + KV_r128', values: { KV_r4: v4CompressR4Bytes, KV_r128: v4CompressR128Bytes }, resultValue: compressedElements * precB, bar: [{ type: 'compressed', bytes: v4CompressR4Bytes + v4CompressR128Bytes }], ibarVal: fmtBytes(compressedElements * precB) },
+      { name: 'KV', tip: 'Main backbone KV cache before optional Draft/MTP cache.', expr: 'KV_sw + KV_cmp', values: { KV_sw: slidingElements * precB, KV_cmp: compressedElements * precB }, resultValue: mainKvBytes, bar: [{ type: 'window', bytes: slidingElements * precB }, { type: 'compressed', bytes: compressedElements * precB }], ibarVal: fmtBytes(mainKvBytes) },
+      { name: 'Idx', tip: 'Backbone ratio=4 layers keep an extra compressed indexer cache.', expr: 'L_4 × ⌊T/4⌋ × d_idx × p_idx', values: { L_4: ratio4Layers, T: tokens, d_idx: idxHd, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) }
     ];
+    if (includeDraft && draftLayers > 0) {
+      formulas.push({ name: 'KV_draft', tip: 'Appended MTP/DSpark layers keep their own cache according to the appended compress ratios.', expr: 'Σ_draft (W×d_h + ⌊T/r⌋×d_h)×p', values: { L: draftLayers, W: sw, d_h: hd, p: precB }, resultValue: draftKvBytes, bar: [{ type: 'window', bytes: draftKvBytes }], ibarVal: fmtBytes(draftKvBytes) });
+    }
+    formulas.push({ name: 'Total', tip: 'Combined cache payload for one sequence including optional Draft/MTP and indexer state.', expr: 'KV + KV_draft + Idx', values: { KV: mainKvBytes, KV_draft: draftKvBytes, Idx: idxBytes }, resultValue: kvBytes + idxBytes, bar: [{ type: 'window', bytes: slidingElements * precB + draftKvBytes }, { type: 'compressed', bytes: compressedElements * precB }, { type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(seqs * (kvBytes + idxBytes)) });
+
     var v4R4Total = v4WindowPerLayer + v4CompressR4PerLayer + v4IdxR4PerLayer;
     var v4R128Total = v4WindowPerLayer + v4CompressR128PerLayer;
     patterns = [];
     if (ratio4Layers > 0) {
-      patterns.push({
-        segs: [
-          { type: 'window', ratio: v4WindowPerLayer / v4R4Total },
-          { type: 'compressed', ratio: v4CompressR4PerLayer / v4R4Total },
-          { type: 'indexer', ratio: v4IdxR4PerLayer / v4R4Total }
-        ],
-        count: ratio4Layers,
-        label: 'r = 4',
-        bytes: v4R4Total
-      });
+      patterns.push({ segs: [
+        { type: 'window', ratio: v4WindowPerLayer / v4R4Total },
+        { type: 'compressed', ratio: v4CompressR4PerLayer / v4R4Total },
+        { type: 'indexer', ratio: v4IdxR4PerLayer / v4R4Total }
+      ], count: ratio4Layers, label: 'backbone r = 4', bytes: v4R4Total });
     }
     if (ratio128Layers > 0) {
-      patterns.push({
-        segs: [
-          { type: 'window', ratio: v4WindowPerLayer / v4R128Total },
-          { type: 'compressed', ratio: v4CompressR128PerLayer / v4R128Total }
-        ],
-        count: ratio128Layers,
-        label: 'r = 128',
-        bytes: v4R128Total
-      });
+      patterns.push({ segs: [
+        { type: 'window', ratio: v4WindowPerLayer / v4R128Total },
+        { type: 'compressed', ratio: v4CompressR128PerLayer / v4R128Total }
+      ], count: ratio128Layers, label: 'backbone r = 128', bytes: v4R128Total });
     }
     if (ratio0Layers > 0) {
-      patterns.push({
-        segs: [{ type: 'window-empty', ratio: 1 }],
-        count: ratio0Layers,
-        label: 'r = 0',
-        bytes: 0
-      });
+      patterns.push({ segs: [{ type: 'window', ratio: 1 }], count: ratio0Layers, label: 'backbone r = 0', bytes: v4WindowPerLayer });
+    }
+    if (includeDraft && draftLayers > 0) {
+      patterns.push({ segs: [{ type: 'window', ratio: 1 }], count: draftLayers, label: 'MTP / DSpark Draft', bytes: draftKvBytes / draftLayers });
     }
     legendTypes = ['window', 'compressed', 'indexer'];
 
     breakdown = [
       { label: 'Main layers', value: fmtNum(totalLayers) },
-      { label: 'Draft layers included', value: includeDraft ? fmtNum(draftLayers) : '0', tip: 'Extra MTP/draft layers after the main transformer layers. In DeepSeek V4 configs these are ratio=0 layers.' },
-      { label: 'Ratio=4 layers', value: fmtNum(ratio4Layers), tip: 'Layers whose compressed cache ratio is 4; these layers also carry indexer cache.' },
-      { label: 'Ratio=128 layers', value: fmtNum(ratio128Layers), tip: 'Layers whose compressed cache keeps floor(tokens / 128) compressed KV slots.' },
-      { label: 'Ratio=0 layers', value: fmtNum(ratio0Layers), tip: 'Layers with no compressed KV segment; they keep only the sliding-window KV cache.' },
-      { label: 'Ratio=0 KV elements', value: fmtNum(ratio0Elements), tip: 'The ratio=0 contribution: ratio0_layers \u00d7 sliding_window \u00d7 head_dim.' },
-      { label: 'Sliding-window elements', value: fmtNum(slidingElements), tip: 'Per-layer local KV reserve: sliding_window \u00d7 head_dim, summed across active layers.' },
-      { label: 'Compressed elements', value: fmtNum(compressedElements), tip: 'Compressed KV elements from layers with compress_ratio greater than zero.' },
-      { label: 'KV elements', value: fmtNum(kvElements), tip: 'Sliding-window plus compressed attention cache elements before applying KV precision.' },
-      { label: 'Indexer elements', value: fmtNum(idxElements), tip: 'Compressed indexer elements from ratio=4 layers before applying indexer precision.' },
+      { label: 'Configured Draft/MTP layers', value: fmtNum(configuredDraftLayers), tip: 'Derived from num_nextn_predict_layers, not from backbone r=0 layers.' },
+      { label: 'Draft layers included', value: fmtNum(draftLayers) },
+      { label: 'Backbone ratio=4 layers', value: fmtNum(ratio4Layers) },
+      { label: 'Backbone ratio=128 layers', value: fmtNum(ratio128Layers) },
+      { label: 'Backbone ratio=0 layers', value: fmtNum(ratio0Layers), tip: 'These are target-model layers with sliding-window KV, not Draft layers.' },
+      { label: 'Backbone ratio=0 KV elements', value: fmtNum(ratio0Elements) },
+      { label: 'Sliding-window elements', value: fmtNum(slidingElements) },
+      { label: 'Compressed elements', value: fmtNum(compressedElements) },
+      { label: 'Draft KV elements', value: fmtNum(draftElements) },
+      { label: 'Indexer elements', value: fmtNum(idxElements) },
       { label: 'KV precision bytes', value: precB.toString() },
       { label: 'Indexer precision bytes', value: idxB.toString() },
     ];
-
-    // kvBytes excludes draft; totalKvBytes includes draft.
-    // Return kvBytes = totalKvBytes so single-sequence KV is complete.
-    kvBytes = totalKvBytes;
 
   // ── deepseek_v41 ──
   } else if (formula === 'deepseek_v41') {
