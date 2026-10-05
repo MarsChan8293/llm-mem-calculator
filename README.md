@@ -27,7 +27,7 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 | CED + shared compressed KV | DeepSeek V4.1 Flash |
 | KDA linear + sparse MLA | GLM-5.3-Flash |
 | Mixed Full + Sliding Window | Gemma 4, Cohere Command, MiMo-V2.5 |
-| Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8 |
+| Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8, Qwen AgentWorld 35B-A3B |
 | GDN linear + QSA | Qwen3.8-Flash-Next |
 
 ## Features
@@ -70,7 +70,9 @@ uses the official reference implementation parameterization, and Kimi K2.7 Code
 uses Moonshot's published 400M Vision Encoder count. GLM-5.3-Flash and Qwen3.8
 vision totals are structural estimates derived from their official vision configs;
 they are marked as estimates in the UI and should be treated as planning numbers,
-not serialized-checkpoint byte counts.
+not serialized-checkpoint byte counts. Qwen AgentWorld checkpoints are treated as language-model-only
+because the official model card states that visual component definitions exist in
+the architecture but the checkpoint contains only language-model weights.
 
 DeepSeek V4.1 Flash global cache is owned by layers 2, 8, 14, 20. Eight
 layers run indexing, but only these four store indexer K; reindexing reuses K.
