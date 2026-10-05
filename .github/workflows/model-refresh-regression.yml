@@ -1,0 +1,15 @@
+name: Model refresh regression
+
+on:
+  push:
+    branches:
+      - model-refresh-20261005
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run cache and deploy regression suite
+        run: node tests/cache-regression.cjs
