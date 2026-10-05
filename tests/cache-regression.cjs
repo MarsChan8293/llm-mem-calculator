@@ -105,6 +105,10 @@ for (const [id, visionParams] of [
   near(withVision.stages[1].weightPerGPU - withoutVision.stages[1].weightPerGPU, 0);
 }
 
+const agentWorld = models.find(m => m.id === 'qwen-agentworld-35b-a3b');
+assert.ok(agentWorld, 'Qwen AgentWorld checkpoint missing');
+assert.equal(context.calcWeight(agentWorld, 1).visionParams, 0, 'AgentWorld checkpoint is language-model-only');
+
 const glm = models.find(m => m.id === 'glm-5.3-flash');
 const zeroRank = { ...glm, fields: { ...glm.fields, q_lora_rank: 0 } };
 near(context.calcWeight(glm, 1).attnParams - context.calcWeight(zeroRank, 1).attnParams, 415236096);
