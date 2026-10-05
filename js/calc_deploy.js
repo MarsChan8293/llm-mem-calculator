@@ -21,6 +21,7 @@ var DEPLOY_BAR_HEX_MAP = {
   'ffn-shared':  '#e67700',
   'ffn-expert':  '#e03131',
   'embed':       '#9c36b5',
+  'vision':      '#495057',
   'kv':          '#0c8599',
   'idx':         '#ae3ec9',
 };
@@ -31,6 +32,7 @@ var DEPLOY_LEGEND_MAP = {
   'ffn-shared':  'Shared Expert',
   'ffn-expert':  'Routed Experts',
   'embed':       'Embedding',
+  'vision':      'Vision Tower',
   'kv':          'KV Cache',
   'idx':         'Indexer KV',
 };
@@ -129,6 +131,7 @@ function calcDeployUnified(model, opts) {
   var sharedExpertPerLayer = moeLayerCount > 0 ? weightResult.ffnSharedParams / moeLayerCount : 0;
   var expertPerLayer = moeLayerCount > 0 ? weightResult.ffnExpertParams / moeLayerCount : 0;
   var embedTotal = weightResult.embedParams;
+  var visionTotal = weightResult.visionParams || 0;
 
   var nRouted = wf.n_routed_experts || 0;
   var perExpertParams = nRouted > 0 && moeLayerCount > 0 ? weightResult.ffnExpertParams / (nRouted * moeLayerCount) : 0;
@@ -167,8 +170,11 @@ function calcDeployUnified(model, opts) {
       ? Math.ceil(nRouted / ep) * perExpertParams * opts.wtPrecB * sMoeCount
       : 0;
     var sEmbedPerGPU = (s === 0 ? embedTotal * opts.wtPrecB / tp : 0);
+    // Place the auxiliary vision encoder/aligner with the first pipeline
+    // stage and shard its weights by TP for deployment planning.
+    var sVisionPerGPU = (s === 0 ? visionTotal * opts.wtPrecB / tp : 0);
 
-    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU;
+    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU + sVisionPerGPU;
 
     var stageKvBytes = kvResult.kvLayerBytes
       ? sumLayerCacheBytes(kvResult.kvLayerBytes, startLayer, endLayer)
@@ -194,6 +200,7 @@ function calcDeployUnified(model, opts) {
     if (sSharedExpertPerGPU > 0) ibarSegs.push({ type: 'ffn-shared', bytes: sSharedExpertPerGPU });
     if (sRoutedExpertPerGPU > 0) ibarSegs.push({ type: 'ffn-expert', bytes: sRoutedExpertPerGPU });
     if (sEmbedPerGPU > 0) ibarSegs.push({ type: 'embed', bytes: sEmbedPerGPU });
+    if (sVisionPerGPU > 0) ibarSegs.push({ type: 'vision', bytes: sVisionPerGPU });
     if (sKvPerGPU > 0) ibarSegs.push({ type: 'kv', bytes: sKvPerGPU });
     if (sIdxPerGPU > 0) ibarSegs.push({ type: 'idx', bytes: sIdxPerGPU });
 
@@ -208,6 +215,7 @@ function calcDeployUnified(model, opts) {
       sharedExpertPerGPU: sSharedExpertPerGPU,
       routedExpertPerGPU: sRoutedExpertPerGPU,
       embedPerGPU: sEmbedPerGPU,
+      visionPerGPU: sVisionPerGPU,
       kvPerGPU: sKvPerGPU,
       idxPerGPU: sIdxPerGPU,
       weightPerGPU: sWeightPerGPU,
@@ -227,6 +235,7 @@ function calcDeployUnified(model, opts) {
     sharedExpertPerGPU: bottleneckStage.sharedExpertPerGPU,
     routedExpertPerGPU: bottleneckStage.routedExpertPerGPU,
     embedPerGPU: bottleneckStage.embedPerGPU,
+    visionPerGPU: bottleneckStage.visionPerGPU || 0,
   };
   var kvBreakdown = {
     kvPerGPU: bottleneckStage.kvPerGPU,
@@ -424,6 +433,19 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
     bar: [{ type: 'embed', bytes: weightResult.embedParams * wtPrecB / tp }],
     ibarVal: fmtWBytes(weightResult.embedParams * wtPrecB / tp),
   });
+
+  if ((weightResult.visionParams || 0) > 0) {
+    var vf = model.vision_fields || {};
+    formulas.push({
+      name: 'Vision/tp',
+      tip: (vf.estimated ? 'Estimated ' : '') + (vf.label || 'vision tower') + ' weights placed on the first PP stage and split by TP for planning.',
+      expr: 'P_vision×p/tp',
+      values: { P_vision: fmtWNum(weightResult.visionParams), p: wtPrecB, tp: tp },
+      resultValue: weightResult.visionParams * wtPrecB / tp,
+      bar: [{ type: 'vision', bytes: weightResult.visionParams * wtPrecB / tp }],
+      ibarVal: fmtWBytes(weightResult.visionParams * wtPrecB / tp),
+    });
+  }
 
   formulas.push({
     name: 'Attention KV/(kv_tp×cp)',
