@@ -21,20 +21,21 @@ Compare KV cache memory across multiple models side-by-side with an interactive 
 | Architecture | Example Models |
 |---|---|
 | Standard GQA | Qwen3, Llama 3.x, Qwen2.5, MiniMax M2.x |
-| MLA (Multi-head Latent Attention) | DeepSeek V3, DeepSeek R1, Kimi K2.5/K2.6 |
+| MLA (Multi-head Latent Attention) | DeepSeek V3, DeepSeek R1, Kimi K2.5/K2.6/K2.7 Code |
 | KDA + Gated MLA (Kimi Delta Attention) | Kimi K3 |
-| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro, DeepSeek V4 Flash, DeepSeek V3.2, GLM-5/5.1/5.2/5.3 |
+| DSA+MLA (DeepSeek V4 Hybrid) | DeepSeek V4 Pro/Pro-0813, V4 Flash/Flash-0731/Vision-Exp, DeepSeek V3.2, GLM-5/5.1/5.2/5.3 |
 | CED + shared compressed KV | DeepSeek V4.1 Flash |
 | KDA linear + sparse MLA | GLM-5.3-Flash |
 | Mixed Full + Sliding Window | Gemma 4, Cohere Command, MiMo-V2.5 |
-| Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8 |
+| Linear + Full Hybrid | Qwen3.5, Qwen3.6, Qwen3.8, Qwen AgentWorld 35B-A3B |
 | GDN linear + QSA | Qwen3.8-Flash-Next |
 
 ## Features
 
 - **Precision options**: BF16/FP16, FP8/INT8, FP4/INT4, and Ascend W8A8/W4A8 weight formats
-- **Draft KV cache**: Account for MTP/draft model KV layers
+- **Draft KV cache**: Account for MTP/DSpark draft layers separately from backbone cache ratios
 - **Linear attention KV**: Include linear attention layer contributions
+- **Multimodal weights**: Include auxiliary vision-tower / aligner parameters for supported multimodal checkpoints
 - **Context presets**: Quick-select from 1K to 1M tokens
 - **Breakdown view**: Detailed per-layer KV cache breakdown
 - **Formula display**: Shows the exact formula used for each model
@@ -62,6 +63,16 @@ DeepSeek cross-PP source-cache sharing requires backend support. These estimates
 are not a guarantee that a given serving topology is supported or will fit.
 
 Run regression checks with `node tests/cache-regression.cjs`.
+
+For multimodal checkpoints, the weight/deploy pages include the auxiliary vision
+encoder when the official configuration exposes it. DeepSeek V4 Flash Vision Exp
+uses the official reference implementation parameterization, and Kimi K2.7 Code
+uses Moonshot's published 400M Vision Encoder count. GLM-5.3-Flash and Qwen3.8
+vision totals are structural estimates derived from their official vision configs;
+they are marked as estimates in the UI and should be treated as planning numbers,
+not serialized-checkpoint byte counts. Qwen AgentWorld checkpoints are treated as language-model-only
+because the official model card states that visual component definitions exist in
+the architecture but the checkpoint contains only language-model weights.
 
 DeepSeek V4.1 Flash global cache is owned by layers 2, 8, 14, 20. Eight
 layers run indexing, but only these four store indexer K; reindexing reuses K.

@@ -60,6 +60,55 @@ for (const pp of [1, 8, 16]) {
   near(a.stages.at(-1).kvPerGPU - b.stages.at(-1).kvPerGPU, 3 * 128 * 512 * 2);
   assert.equal(a.stages.reduce((n, s) => n + s.layerCount, 0), 40);
 }
+// DeepSeek V4 configs append Draft/MTP compress ratios after backbone layers.
+for (const [id, draftCount] of [
+  ['deepseek-v4-pro', 1],
+  ['deepseek-v4-pro-0813', 1],
+  ['deepseek-v4-flash', 1],
+  ['deepseek-v4-flash-0731', 3],
+  ['deepseek-v4-flash-vision-exp', 3],
+]) {
+  const model = models.find(m => m.id === id);
+  assert.ok(model, id + ' missing');
+  assert.equal(model.fields.num_nextn_predict_layers, draftCount, id + ' draft count');
+  assert.equal(model.fields.compress_ratios.length, model.fields.num_hidden_layers + draftCount, id + ' ratio layout');
+  const noDraft = context.calcKvCache(model, 1024, 2, 1, { includeDraft: false });
+  const withDraft = context.calcKvCache(model, 1024, 2, 1, { includeDraft: true });
+  const expectedDraft = draftCount * 128 * 512 * 2;
+  near(withDraft.draftKvBytes, expectedDraft);
+  near(withDraft.kvBytes - noDraft.kvBytes, expectedDraft);
+  const mainRatios = Array.from(model.fields.compress_ratios).slice(0, model.fields.num_hidden_layers);
+  assert.equal(withDraft.idxLayers, mainRatios.filter(r => r === 4).length);
+  assert.equal(withDraft.kvLayerBytes.length, model.fields.num_hidden_layers);
+  assert.equal(withDraft.idxLayerBytes.length, model.fields.num_hidden_layers);
+}
+// In particular, the preview Flash backbone begins with two r=0 layers but has
+// only one appended Draft layer; leading r=0 target layers are not Draft.
+assert.equal(models.find(m => m.id === 'deepseek-v4-flash').fields.compress_ratios.slice(0, 43).filter(r => r === 0).length, 2);
+near(context.calcKvCache(models.find(m => m.id === 'deepseek-v4-flash'), 1024, 2, 1, { includeDraft: true }).draftKvBytes, 128 * 512 * 2);
+
+for (const [id, visionParams] of [
+  ['deepseek-v4-flash-vision-exp', 466376704],
+  ['kimi-k2.7-code', 400000000],
+  ['glm-5.3-flash', 530131968],
+  ['qwen3.8-27b', 460730096],
+  ['qwen3.8-flash-next', 448931056],
+]) {
+  const model = models.find(m => m.id === id);
+  assert.ok(model, id + ' missing');
+  const weight = context.calcWeight(model, 1);
+  assert.equal(weight.visionParams, visionParams, id + ' vision params');
+  const opts = { ...base, tp: 2, pp: 2, ep: 1, includeDraft: true, gpuId: 'b300_288' };
+  const withVision = context.calcDeploy(model, opts);
+  const withoutVision = context.calcDeploy({ ...model, vision_fields: null }, opts);
+  near(withVision.stages[0].weightPerGPU - withoutVision.stages[0].weightPerGPU, visionParams / 2);
+  near(withVision.stages[1].weightPerGPU - withoutVision.stages[1].weightPerGPU, 0);
+}
+
+const agentWorld = models.find(m => m.id === 'qwen-agentworld-35b-a3b');
+assert.ok(agentWorld, 'Qwen AgentWorld checkpoint missing');
+assert.equal(context.calcWeight(agentWorld, 1).visionParams, 0, 'AgentWorld checkpoint is language-model-only');
+
 const glm = models.find(m => m.id === 'glm-5.3-flash');
 const zeroRank = { ...glm, fields: { ...glm.fields, q_lora_rank: 0 } };
 near(context.calcWeight(glm, 1).attnParams - context.calcWeight(zeroRank, 1).attnParams, 415236096);

@@ -17,17 +17,17 @@ var WEIGHT_SYMBOL_NAMES = {
 var WEIGHT_BAR_COLOR_MAP = {
   'attn': 'seg-full', 'ffn-dense': 'seg-full-alt',
   'ffn-shared': 'seg-compressed', 'ffn-expert': 'seg-indexer',
-  'embed': 'seg-rope',
+  'embed': 'seg-rope', 'vision': 'seg-fixed-alt',
 };
 var WEIGHT_BAR_HEX_MAP = {
   'attn': '#4263eb', 'ffn-dense': '#f59e0b',
   'ffn-shared': '#e67700', 'ffn-expert': '#e03131',
-  'embed': '#9c36b5',
+  'embed': '#9c36b5', 'vision': '#495057',
 };
 var WEIGHT_LEGEND_LABEL_MAP = {
   'attn': 'Attention', 'ffn-dense': 'Dense FFN',
   'ffn-shared': 'Shared Expert', 'ffn-expert': 'Routed Experts',
-  'embed': 'Embedding',
+  'embed': 'Embedding', 'vision': 'Vision Tower',
 };
 
 function fmtWBytes(bytes) {
@@ -61,6 +61,7 @@ function calcWeight(model, wtPrecB) {
   var ffnSharedParams = 0;
   var ffnExpertParams = 0;
   var embedParams = 0;
+  var visionParams = (model.vision_fields && model.vision_fields.params) || 0;
 
   var breakdown = [];
   var formulas = [];
@@ -1243,7 +1244,27 @@ function calcWeight(model, wtPrecB) {
     formulaTitle = model.label + ' (unknown)';
   }
 
-  var totalParams = attnParams + ffnDenseParams + ffnSharedParams + ffnExpertParams + embedParams;
+  if (visionParams > 0) {
+    var vf = model.vision_fields || {};
+    formulas.push({
+      name: 'Vision',
+      tip: (vf.estimated ? 'Estimated ' : '') + (vf.label || 'vision tower') + ' parameters. The selected weight precision is applied uniformly for planning.',
+      expr: 'P_vision',
+      values: { P_vision: visionParams },
+      resultValue: visionParams,
+      bar: [{ type: 'vision', bytes: visionParams * wtPrecB }],
+      ibarVal: fmtWNum(visionParams)
+    });
+    breakdown.push({
+      label: (vf.estimated ? 'Vision params (estimate)' : 'Vision params'),
+      value: fmtWNum(visionParams),
+      tip: vf.source || 'Auxiliary multimodal vision encoder parameters.'
+    });
+    patterns.push({ segs: [{ type: 'vision', ratio: 1 }], count: 1, label: vf.label || 'vision tower', bytes: visionParams * wtPrecB });
+    if (legendTypes.indexOf('vision') === -1) legendTypes.push('vision');
+  }
+
+  var totalParams = attnParams + ffnDenseParams + ffnSharedParams + ffnExpertParams + embedParams + visionParams;
   var totalBytes = totalParams * wtPrecB;
 
   return {
@@ -1254,6 +1275,7 @@ function calcWeight(model, wtPrecB) {
     ffnSharedParams: ffnSharedParams,
     ffnExpertParams: ffnExpertParams,
     embedParams: embedParams,
+    visionParams: visionParams,
     breakdown: breakdown,
     formulas: formulas,
     formulaTitle: formulaTitle,
