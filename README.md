@@ -74,6 +74,14 @@ not serialized-checkpoint byte counts. Qwen AgentWorld checkpoints are treated a
 because the official model card states that visual component definitions exist in
 the architecture but the checkpoint contains only language-model weights.
 
+DeepSeek V4.1 Flash's official vision implementation contains a 32-layer
+ViT, a two-layer aligner to 5120 hidden dimensions, and three learned image
+markers (485,268,480 parameters total). They are included in GPU weight and
+deploy estimates. Its Engram tables contain 196,613,849,600 FP8 values plus
+scales; these external/offloaded parameters appear in the weight breakdown
+but are excluded from GPU-resident weight totals. DSpark draft configuration
+is tracked; the optional Draft control counts draft KV, not all draft weights.
+
 DeepSeek V4.1 Flash global cache is owned by layers 2, 8, 14, 20. Eight
 layers run indexing, but only these four store indexer K; reindexing reuses K.
 With both cache precision selectors set to FP4, global storage per token is

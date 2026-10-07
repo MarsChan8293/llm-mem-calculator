@@ -89,6 +89,7 @@ near(context.calcKvCache(models.find(m => m.id === 'deepseek-v4-flash'), 1024, 2
 
 for (const [id, visionParams] of [
   ['deepseek-v4-flash-vision-exp', 466376704],
+  ['deepseek-v4.1-flash', 485268480],
   ['kimi-k2.7-code', 400000000],
   ['glm-5.3-flash', 530131968],
   ['qwen3.8-27b', 460730096],
@@ -104,6 +105,27 @@ for (const [id, visionParams] of [
   near(withVision.stages[0].weightPerGPU - withoutVision.stages[0].weightPerGPU, visionParams / 2);
   near(withVision.stages[1].weightPerGPU - withoutVision.stages[1].weightPerGPU, 0);
 }
+
+
+// DeepSeek V4.1 official config: Engram offload, DSpark draft, and vision.
+assert.equal(ds.fields.engram_num_embeddings[0], 384006168);
+assert.equal(ds.fields.engram_num_embeddings[1], 384016682);
+assert.equal(ds.fields.engram_head_dim, 256);
+assert.equal(ds.fields.dspark_block_size, 5);
+assert.equal(ds.fields.dspark_n_routed_experts, 128);
+assert.equal(ds.fields.dspark_num_experts_per_tok, 3);
+assert.equal(ds.fields.dspark_target_layer_ids.join(','), '37,38,39');
+const engramParams = (384006168 + 384016682) * 256;
+const v41VisionParams = (3 * 14 * 14 * 1024 + 1024)
+  + 32 * (2 * 1024 + (4 * 1024 * 1024 + 4 * 1024) + (3 * 1024 * 2816))
+  + 1024
+  + (1024 * 9 * 5120 + 5120) + (5120 * 5120 + 5120)
+  + 3 * 5120;
+assert.equal(v41VisionParams, 485268480);
+const v41Weight = context.calcWeight(ds, 1);
+assert.equal(v41Weight.visionParams, v41VisionParams);
+assert.equal(v41Weight.totalParams - context.calcWeight({ ...ds, vision_fields: null }, 1).totalParams, v41VisionParams);
+assert.ok(v41Weight.breakdown.some(item => item.label === 'Engram table params (external)' && item.value === engramParams.toLocaleString('en-US')));
 
 const agentWorld = models.find(m => m.id === 'qwen-agentworld-35b-a3b');
 assert.ok(agentWorld, 'Qwen AgentWorld checkpoint missing');
