@@ -125,7 +125,21 @@ assert.equal(v41VisionParams, 485268480);
 const v41Weight = context.calcWeight(ds, 1);
 assert.equal(v41Weight.visionParams, v41VisionParams);
 assert.equal(v41Weight.totalParams - context.calcWeight({ ...ds, vision_fields: null }, 1).totalParams, v41VisionParams);
-assert.ok(v41Weight.breakdown.some(item => item.label === 'Engram table params (external)' && item.value === engramParams.toLocaleString('en-US')));
+assert.ok(v41Weight.breakdown.some(item => item.label === 'Engram table params (FP8 resident)' && item.value === engramParams.toLocaleString('en-US')));
+const withoutEngram = { ...ds, fields: { ...ds.fields, engram_num_embeddings: [], engram_layer_ids: [] } };
+const v41NoEngram = context.calcWeight(withoutEngram, 1);
+near(v41Weight.totalParams - v41NoEngram.totalParams, engramParams);
+near(v41Weight.totalBytes - v41NoEngram.totalBytes, engramParams * 33 / 32);
+for (const pp of [1, 2, 8]) {
+  const a = context.calcDeploy(ds, { ...base, pp, tp: 2 });
+  const b = context.calcDeploy(withoutEngram, { ...base, pp, tp: 2 });
+  for (let i = 0; i < pp; i++) {
+    const lo = Math.floor(i * 40 / pp), hi = Math.floor((i + 1) * 40 / pp) - 1;
+    const expected = ds.fields.engram_layer_ids.reduce((n, layer, j) => n + (layer >= lo && layer <= hi ? Math.ceil(ds.fields.engram_num_embeddings[j] / 2) * 256 * 33 / 32 : 0), 0);
+    near(a.stages[i].weightPerGPU - b.stages[i].weightPerGPU, expected);
+    near(a.stages[i].engramPerGPU, expected);
+  }
+}
 
 const agentWorld = models.find(m => m.id === 'qwen-agentworld-35b-a3b');
 assert.ok(agentWorld, 'Qwen AgentWorld checkpoint missing');

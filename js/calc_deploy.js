@@ -132,6 +132,9 @@ function calcDeployUnified(model, opts) {
   var expertPerLayer = moeLayerCount > 0 ? weightResult.ffnExpertParams / moeLayerCount : 0;
   var embedTotal = weightResult.embedParams;
   var visionTotal = weightResult.visionParams || 0;
+  var engramRows = Array.isArray(f.engram_num_embeddings) ? f.engram_num_embeddings : [];
+  var engramLayers = Array.isArray(f.engram_layer_ids) ? f.engram_layer_ids : [];
+  var engramDim = f.engram_head_dim || 0;
 
   var nRouted = wf.n_routed_experts || 0;
   var perExpertParams = nRouted > 0 && moeLayerCount > 0 ? weightResult.ffnExpertParams / (nRouted * moeLayerCount) : 0;
@@ -173,8 +176,13 @@ function calcDeployUnified(model, opts) {
     // Place the auxiliary vision encoder/aligner with the first pipeline
     // stage and shard its weights by TP for deployment planning.
     var sVisionPerGPU = (s === 0 ? visionTotal * opts.wtPrecB / tp : 0);
-
-    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU + sVisionPerGPU;
+    var sEngramPerGPU = 0;
+    for (var ei = 0; ei < engramRows.length; ei++) {
+      if (engramLayers[ei] >= startLayer && engramLayers[ei] <= endLayer) {
+        sEngramPerGPU += Math.ceil(engramRows[ei] / tp) * engramDim * (1 + 1 / 32);
+      }
+    }
+    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU + sVisionPerGPU + sEngramPerGPU;
 
     var stageKvBytes = kvResult.kvLayerBytes
       ? sumLayerCacheBytes(kvResult.kvLayerBytes, startLayer, endLayer)
@@ -201,6 +209,7 @@ function calcDeployUnified(model, opts) {
     if (sRoutedExpertPerGPU > 0) ibarSegs.push({ type: 'ffn-expert', bytes: sRoutedExpertPerGPU });
     if (sEmbedPerGPU > 0) ibarSegs.push({ type: 'embed', bytes: sEmbedPerGPU });
     if (sVisionPerGPU > 0) ibarSegs.push({ type: 'vision', bytes: sVisionPerGPU });
+    if (sEngramPerGPU > 0) ibarSegs.push({ type: 'embed', bytes: sEngramPerGPU });
     if (sKvPerGPU > 0) ibarSegs.push({ type: 'kv', bytes: sKvPerGPU });
     if (sIdxPerGPU > 0) ibarSegs.push({ type: 'idx', bytes: sIdxPerGPU });
 
@@ -216,6 +225,7 @@ function calcDeployUnified(model, opts) {
       routedExpertPerGPU: sRoutedExpertPerGPU,
       embedPerGPU: sEmbedPerGPU,
       visionPerGPU: sVisionPerGPU,
+      engramPerGPU: sEngramPerGPU,
       kvPerGPU: sKvPerGPU,
       idxPerGPU: sIdxPerGPU,
       weightPerGPU: sWeightPerGPU,
@@ -236,6 +246,7 @@ function calcDeployUnified(model, opts) {
     routedExpertPerGPU: bottleneckStage.routedExpertPerGPU,
     embedPerGPU: bottleneckStage.embedPerGPU,
     visionPerGPU: bottleneckStage.visionPerGPU || 0,
+    engramPerGPU: bottleneckStage.engramPerGPU || 0,
   };
   var kvBreakdown = {
     kvPerGPU: bottleneckStage.kvPerGPU,
@@ -447,6 +458,12 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
     });
   }
 
+  if (weightResult.engramParams > 0) {
+    var eRows = f.engram_num_embeddings || [];
+    var eDim = f.engram_head_dim || 0;
+    var ePerGpu = eRows.reduce(function(n, rows) { return n + Math.ceil(rows / tp) * eDim * (1 + 1 / 32); }, 0);
+    formulas.push({ name: 'Engram FP8/tp', tip: 'GPU-resident FP8 hash tables plus scales, sharded by TP and assigned to owner PP layers. CPU offload is not assumed.', expr: 'Σ⌈rows/tp⌉×d×33/32', values: { tp: tp, d: eDim }, resultValue: ePerGpu, bar: [{ type: 'embed', bytes: ePerGpu }], ibarVal: fmtWBytes(ePerGpu) });
+  }
   formulas.push({
     name: 'Attention KV/(kv_tp×cp)',
     tip: modelUsesMlaKv(model)

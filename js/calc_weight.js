@@ -62,6 +62,9 @@ function calcWeight(model, wtPrecB) {
   var ffnExpertParams = 0;
   var embedParams = 0;
   var visionParams = (model.vision_fields && model.vision_fields.params) || 0;
+  // FP8 resident Engram hash tables, plus one scale byte per 32 values.
+  var engramParams = Array.isArray(f.engram_num_embeddings) ? f.engram_num_embeddings.reduce(function(n, rows) { return n + rows * (f.engram_head_dim || 0); }, 0) : 0;
+  var engramBytes = engramParams * (1 + 1 / 32);
 
   var breakdown = [];
   var formulas = [];
@@ -456,10 +459,7 @@ function calcWeight(model, wtPrecB) {
     var v41TieEmbed = wf.tie_word_embeddings;
     embedParams = v41TieEmbed ? (V * h) : (2 * V * h);
 
-    var v41EngramParams = 0;
-    if (Array.isArray(f.engram_num_embeddings)) {
-      f.engram_num_embeddings.forEach(function (count) { v41EngramParams += count * (f.engram_head_dim || 0); });
-    }
+    var v41EngramParams = engramParams;
 
     formulaTitle = model.label + ' CED attention';
     formulas = [
@@ -514,7 +514,7 @@ function calcWeight(model, wtPrecB) {
       breakdown.push({ label: 'Shared expert per layer', value: fmtWNum(v41SharedPerLayer) });
       breakdown.push({ label: 'Routed expert per layer', value: fmtWNum(v41ExpertPerLayer) });
     }
-    if (v41EngramParams > 0) breakdown.push({ label: 'Engram table params (external)', value: fmtWNum(v41EngramParams), tip: 'Conditional memory table; excluded from accelerator-resident transformer weight total.' });
+    if (v41EngramParams > 0) breakdown.push({ label: 'Engram table params (FP8 resident)', value: fmtWNum(v41EngramParams), tip: 'Sharded FP8 hash table plus one scale byte per 32 values; included in accelerator memory unless explicitly offloaded.' });
     breakdown.push({ label: 'Vocab size', value: fmtWNum(V) });
     breakdown.push({ label: 'Tie embeddings', value: v41TieEmbed ? 'Yes' : 'No' });
     breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
@@ -1264,8 +1264,12 @@ function calcWeight(model, wtPrecB) {
     if (legendTypes.indexOf('vision') === -1) legendTypes.push('vision');
   }
 
-  var totalParams = attnParams + ffnDenseParams + ffnSharedParams + ffnExpertParams + embedParams + visionParams;
-  var totalBytes = totalParams * wtPrecB;
+  if (engramParams > 0) {
+    formulas.push({ name: 'Engram', tip: 'FP8 hash tables plus one scale byte per 32 elements, independent of selected transformer weight precision.', expr: 'P_engram', values: { P_engram: engramParams }, resultValue: engramParams, bar: [{ type: 'embed', bytes: engramBytes }], ibarVal: fmtWNum(engramParams) });
+    patterns.push({ segs: [{ type: 'embed', ratio: 1 }], count: 1, label: 'Engram FP8 + scales', bytes: engramBytes });
+  }
+  var totalParams = attnParams + ffnDenseParams + ffnSharedParams + ffnExpertParams + embedParams + visionParams + engramParams;
+  var totalBytes = (totalParams - engramParams) * wtPrecB + engramBytes;
 
   return {
     totalParams: totalParams,
@@ -1276,6 +1280,8 @@ function calcWeight(model, wtPrecB) {
     ffnExpertParams: ffnExpertParams,
     embedParams: embedParams,
     visionParams: visionParams,
+    engramParams: engramParams,
+    engramBytes: engramBytes,
     breakdown: breakdown,
     formulas: formulas,
     formulaTitle: formulaTitle,

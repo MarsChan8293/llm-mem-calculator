@@ -78,8 +78,11 @@ DeepSeek V4.1 Flash's official vision implementation contains a 32-layer
 ViT, a two-layer aligner to 5120 hidden dimensions, and three learned image
 markers (485,268,480 parameters total). They are included in GPU weight and
 deploy estimates. Its Engram tables contain 196,613,849,600 FP8 values plus
-scales; these external/offloaded parameters appear in the weight breakdown
-but are excluded from GPU-resident weight totals. DSpark draft configuration
+scales (202.758 GB of resident storage before sharding). The official reference
+implementation allocates them as GPU-resident FP8 tables sharded by process rank;
+the calculator includes their storage in Weights and Deploy and assigns each
+table to its owning pipeline stage. CPU offload requires a separate serving
+backend and is **not** assumed. DSpark draft configuration
 is tracked; the optional Draft control counts draft KV, not all draft weights.
 
 DeepSeek V4.1 Flash global cache is owned by layers 2, 8, 14, 20. Eight
