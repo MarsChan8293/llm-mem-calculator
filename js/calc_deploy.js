@@ -182,7 +182,9 @@ function calcDeployUnified(model, opts) {
         sEngramPerGPU += Math.ceil(engramRows[ei] / tp) * engramDim * (1 + 1 / 32);
       }
     }
-    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU + sVisionPerGPU + sEngramPerGPU;
+    var sEngramCpuBytes = sEngramPerGPU * tp;
+    sEngramPerGPU = 0; // Engram tables default to host RAM, not accelerator VRAM.
+    var sWeightPerGPU = sAttnPerGPU + sDenseFfnPerGPU + sSharedExpertPerGPU + sRoutedExpertPerGPU + sEmbedPerGPU + sVisionPerGPU;
 
     var stageKvBytes = kvResult.kvLayerBytes
       ? sumLayerCacheBytes(kvResult.kvLayerBytes, startLayer, endLayer)
@@ -226,6 +228,7 @@ function calcDeployUnified(model, opts) {
       embedPerGPU: sEmbedPerGPU,
       visionPerGPU: sVisionPerGPU,
       engramPerGPU: sEngramPerGPU,
+      engramCpuBytes: sEngramCpuBytes,
       kvPerGPU: sKvPerGPU,
       idxPerGPU: sIdxPerGPU,
       weightPerGPU: sWeightPerGPU,
@@ -462,7 +465,7 @@ function buildDeployFormulas(model, opts, weightResult, kvResult, stages) {
     var eRows = f.engram_num_embeddings || [];
     var eDim = f.engram_head_dim || 0;
     var ePerGpu = eRows.reduce(function(n, rows) { return n + Math.ceil(rows / tp) * eDim * (1 + 1 / 32); }, 0);
-    formulas.push({ name: 'Engram FP8/tp', tip: 'GPU-resident FP8 hash tables plus scales, sharded by TP and assigned to owner PP layers. CPU offload is not assumed.', expr: 'Σ⌈rows/tp⌉×d×33/32', values: { tp: tp, d: eDim }, resultValue: ePerGpu, bar: [{ type: 'embed', bytes: ePerGpu }], ibarVal: fmtWBytes(ePerGpu) });
+    formulas.push({ name: 'Engram CPU RAM', tip: 'FP8 hash tables plus scales default to CPU RAM; excluded from GPU weight and deployment VRAM.', expr: 'Σ⌈rows/tp⌉×d×33/32', values: { tp: tp, d: eDim }, resultValue: ePerGpu * tp, bar: [], ibarVal: fmtWBytes(ePerGpu) });
   }
   formulas.push({
     name: 'Attention KV/(kv_tp×cp)',
