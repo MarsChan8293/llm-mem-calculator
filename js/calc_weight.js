@@ -514,7 +514,7 @@ function calcWeight(model, wtPrecB) {
       breakdown.push({ label: 'Shared expert per layer', value: fmtWNum(v41SharedPerLayer) });
       breakdown.push({ label: 'Routed expert per layer', value: fmtWNum(v41ExpertPerLayer) });
     }
-    if (v41EngramParams > 0) breakdown.push({ label: 'Engram table params (FP8 resident)', value: fmtWNum(v41EngramParams), tip: 'Sharded FP8 hash table plus one scale byte per 32 values; included in accelerator memory unless explicitly offloaded.' });
+    if (v41EngramParams > 0) breakdown.push({ label: 'Engram table params (CPU offload default)', value: fmtWNum(v41EngramParams), tip: 'FP8 hash table plus one scale byte per 32 values; counted as CPU RAM by default, not GPU VRAM.' });
     breakdown.push({ label: 'Vocab size', value: fmtWNum(V) });
     breakdown.push({ label: 'Tie embeddings', value: v41TieEmbed ? 'Yes' : 'No' });
     breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
@@ -1265,8 +1265,8 @@ function calcWeight(model, wtPrecB) {
   }
 
   if (engramParams > 0) {
-    formulas.push({ name: 'Engram', tip: 'FP8 hash tables plus one scale byte per 32 elements, independent of selected transformer weight precision.', expr: 'P_engram', values: { P_engram: engramParams }, resultValue: engramParams, bar: [{ type: 'embed', bytes: engramBytes }], ibarVal: fmtWNum(engramParams) });
-    patterns.push({ segs: [{ type: 'embed', ratio: 1 }], count: 1, label: 'Engram FP8 + scales', bytes: engramBytes });
+    formulas.push({ name: 'Engram', tip: 'CPU-offloaded FP8 hash tables plus one scale byte per 32 elements, independent of selected transformer weight precision.', expr: 'P_engram', values: { P_engram: engramParams }, resultValue: engramParams, bar: [{ type: 'embed', bytes: engramBytes }], ibarVal: fmtWNum(engramParams) });
+    patterns.push({ segs: [{ type: 'embed', ratio: 1 }], count: 1, label: 'Engram FP8 + scales (CPU RAM)', bytes: engramBytes });
   }
   var totalParams = attnParams + ffnDenseParams + ffnSharedParams + ffnExpertParams + embedParams + visionParams + engramParams;
   var totalBytes = (totalParams - engramParams) * wtPrecB + engramBytes;
