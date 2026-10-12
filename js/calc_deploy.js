@@ -1,6 +1,7 @@
 var GPU_OPTIONS = [
   { id: 'b300_288', label: 'B300 288GB', vram: 288 * 1e9 },
   { id: 'h20_141',        label: 'H20 141GB',         vram: 141 * 1e9 },
+  { id: 'h800_sxm_80', label: 'NVIDIA H800 SXM 80GB', vram: 80 * 1e9 },
   { id: 'h200_141',       label: 'H200 141GB',        vram: 141 * 1e9 },
   { id: 'l20_48',         label: 'L20 48GB',          vram: 48 * 1e9 },
   { id: 'ascend_910b_64', label: 'Ascend 910B 64GB', vram: 64 * 1e9 },
