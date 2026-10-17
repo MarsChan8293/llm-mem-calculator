@@ -304,6 +304,9 @@ function calcDeployUnified(model, opts) {
     maxConcurrency: maxConcurrency,
     concurrencyBottleneck: concurrencyBottleneck,
     totalPerGPU: maxStageTotalPerGPU,
+    // External Engram tables: separate CPU memory budget (dtype-dependent).
+    cpuOffloadBytesFP8: weightResult.engramCpuBytesFP8 || 0,
+    cpuOffloadBytesBF16: weightResult.engramCpuBytesBF16 || 0,
     totalGPUs: tp * pp * dp,
     weightBreakdown: weightBreakdown,
     kvBreakdown: kvBreakdown,

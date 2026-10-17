@@ -1270,6 +1270,10 @@ function calcWeight(model, wtPrecB) {
   return {
     totalParams: totalParams,
     totalBytes: totalBytes,
+    // Engram tables are external CPU-side storage, never added to GPU weights.
+    engramParams: v41EngramParams || 0,
+    engramCpuBytesFP8: v41EngramParams || 0,
+    engramCpuBytesBF16: (v41EngramParams || 0) * 2,
     attnParams: attnParams,
     ffnDenseParams: ffnDenseParams,
     ffnSharedParams: ffnSharedParams,

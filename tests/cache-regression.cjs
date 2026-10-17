@@ -116,4 +116,35 @@ for (const model of models) {
   const result = context.calcDeploy(model, base);
   assert.ok(Number.isFinite(result.totalPerGPU) && result.totalPerGPU > 0, model.id);
 }
+
+// 2026-10-17 DeepSeek V4.1 Flash checkpoint: unchanged KV architecture.
+const v41Base = models.find(m => m.id === 'deepseek-v4.1-flash');
+const v41Oct = models.find(m => m.id === 'deepseek-v4.1-flash-1017');
+assert.ok(v41Base && v41Oct, 'V4.1 checkpoints present');
+assert.equal(v41Oct.formula, 'deepseek_v41');
+assert.equal(JSON.stringify(v41Oct.fields), JSON.stringify(v41Base.fields));
+assert.equal(JSON.stringify(v41Oct.weight_fields), JSON.stringify(v41Base.weight_fields));
+assert.equal(v41Oct.fields.num_nextn_predict_layers, 3);
+assert.equal(v41Oct.fields.dspark_target_layer_ids.length, 3);
+assert.equal(v41Oct.fields.kv_source_layer_ids.length, 4);
+assert.equal(v41Oct.fields.index_source_layer_ids.length, 8);
+assert.equal(v41Oct.vision_fields.params, 366686208);
+assert.equal(v41Oct.vision_fields.estimated, true);
+const engramCount = (384006168 + 384016682) * 256;
+for (const m of [v41Base, v41Oct]) {
+  const w = context.calcWeight(m, 1);
+  assert.equal(w.engramParams, engramCount);
+  assert.equal(w.engramCpuBytesFP8, engramCount);
+  assert.equal(w.engramCpuBytesBF16, 2 * engramCount);
+  for (const tokens of [1024, 65536, 1048576]) {
+    const k = context.calcKvCache(m, tokens, 1, 1, { includeDraft: true });
+    const ref = context.calcKvCache(v41Base, tokens, 1, 1, { includeDraft: true });
+    near(k.kvBytes, ref.kvBytes);
+    near(k.idxBytes, ref.idxBytes);
+  }
+  const d = context.calcDeploy(m, { ...base, tp: 8, ep: 8, includeDraft: true, gpuId: 'b300_288' });
+  assert.equal(d.cpuOffloadBytesFP8, engramCount);
+  assert.equal(d.cpuOffloadBytesBF16, 2 * engramCount);
+}
+
 console.log(`Cache topology regression tests passed; ${models.length} model smoke checks passed.`);
