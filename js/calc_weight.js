@@ -989,7 +989,7 @@ function calcWeight(model, wtPrecB) {
     breakdown.push({ label: 'Tie embeddings', value: qsaTieEmbed ? 'Yes' : 'No' });
     breakdown.push({ label: 'Embedding params', value: fmtWNum(embedParams) });
 
-  } else if (formula === 'kda_gated_mla') {
+  } else if (formula === 'kda_gated_mla' || formula === 'kda_gated_dsa') {
     var fullLayers = f.full_attention_layers || 0;
     var linearLayers = f.linear_attention_layers || 0;
 
@@ -1052,7 +1052,7 @@ function calcWeight(model, wtPrecB) {
     var tieEmbed = wf.tie_word_embeddings;
     embedParams = tieEmbed ? (V * h) : (2 * V * h);
 
-    formulaTitle = model.label + ' KDA + Gated MLA';
+    formulaTitle = model.label + (formula === 'kda_gated_dsa' ? ' KDA + Gated DSA (indexer projection weights approximate)' : ' KDA + Gated MLA');
     formulas = [
       { name: 'Attn_f', tip: 'Gated MLA attention per layer: Q LoRA down/up + KV LoRA down/up + output gate + O projection.', expr: 'h\u00d7q_r + q_r\u00d7n_q\u00d7qk + h\u00d7(d_c+d_r) + d_c\u00d7n_q\u00d7(qk_nope+d_v) + n_q\u00d7d_v\u00d7h + n_q\u00d7d_v\u00d7h', values: { h: h, q_r: qLoraRank, n_q: n_q, qk: qkHd, d_c: kvLoraRank, d_r: qkRopeHd, qk_nope: qkNopeHd, d_v: d_v }, resultValue: mlaAttnPerLayer, bar: [{ type: 'attn', bytes: mlaAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(mlaAttnPerLayer) },
       { name: 'Attn_l', tip: 'KDA linear attention per layer: Q + K + V + delta gate (f_a/f_b) + beta + full-rank gate + O.', expr: 'h\u00d7n_q\u00d7d_kl + h\u00d7h_kl\u00d7d_kl + h\u00d7h_vl\u00d7d_vl + h\u00d7d_kl + d_kl\u00d7h_vl\u00d7d_vl + h\u00d7h_kl + h\u00d7h_vl\u00d7d_vl + h_vl\u00d7d_vl\u00d7h', values: { h: h, n_q: n_q, h_kl: linKvHeads, d_kl: linKeyHd, h_vl: linValHeads, d_vl: linValHd }, resultValue: kdaAttnPerLayer, bar: [{ type: 'attn', bytes: kdaAttnPerLayer * wtPrecB }], ibarVal: fmtWNum(kdaAttnPerLayer) },
