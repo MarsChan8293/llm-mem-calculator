@@ -899,7 +899,7 @@ function calcKvCache(model, tokens, precB, idxB, options) {
 
 
   // ── kda_gated_mla (Kimi K3: KDA linear attention + Gated MLA) ──
-  } else if (formula === 'kda_gated_mla') {
+  } else if (formula === 'kda_gated_mla' || formula === 'kda_gated_dsa') {
     const fullLayers = f.full_attention_layers;
     const linearLayers = f.linear_attention_layers;
     const kvLoraRank = f.kv_lora_rank;
@@ -914,6 +914,17 @@ function calcKvCache(model, tokens, precB, idxB, options) {
     const mlaElements = fullLayers * (kvLoraRank + qkRopeHd) * tokens;
     const mlaBytes = mlaElements * precB;
 
+    // K3.1 DSA: the sparse layers retain MLA latent KV for all tokens and
+    // an additional indexer key cache (one 128-d vector per token/layer).
+    // index_n_heads is query-side scoring parallelism, not KV storage width.
+    const dsaLayers = formula === 'kda_gated_dsa' ? (f.dsa_layers || []) : [];
+    const dsaCount = dsaLayers.length;
+    const idxHd = f.index_head_dim || 0;
+    idxBytes = dsaCount * idxHd * tokens * idxB;
+    idxLayers = dsaCount;
+    idxLayerBytes = new Array(f.num_hidden_layers).fill(0);
+    dsaLayers.forEach(function (layer) { idxLayerBytes[layer - 1] = idxHd * tokens * idxB; });
+
     // KDA linear-attention conv state: fixed per sequence, BF16 (2 bytes)
     const kdaConvElements = linearLayers * convDim * (2 * linKvHeads * linKeyHd + linValHeads * linValHd);
     const kdaConvBytes = includeLinear ? kdaConvElements * 2 : 0;
@@ -925,9 +936,9 @@ function calcKvCache(model, tokens, precB, idxB, options) {
     const kdaBytes = kdaConvBytes + kdaRecurrentBytes;
     kvBytes = mlaBytes + kdaBytes;
 
-    perTokenBytes = (mlaBytes + kdaBytes) / tokens;
+    perTokenBytes = (mlaBytes + kdaBytes + idxBytes) / tokens;
 
-    formulaTitle = model.label + ' KDA + Gated MLA attention';
+    formulaTitle = model.label + (dsaCount ? ' KDA + Gated DSA attention' : ' KDA + Gated MLA attention');
     var kdaMlaCompressedBytes = mlaBytes * kvLoraRank / (kvLoraRank + qkRopeHd);
     var kdaMlaRopeBytes = mlaBytes * qkRopeHd / (kvLoraRank + qkRopeHd);
     var kdaMlaBar = qkRopeHd > 0
@@ -939,6 +950,14 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { name: 'S_rec', tip: 'KDA delta-rule recurrent state, fixed per sequence in FP32. Include via the linear-state toggle.', expr: 'B \u00d7 L_l \u00d7 h_vl \u00d7 d_kl \u00d7 d_vl \u00d7 4', values: { L_l: linearLayers, h_vl: linValHeads, d_kl: linKeyHd, d_vl: linValHd }, resultValue: kdaRecurrentBytes, bar: [{ type: 'fixed-alt', bytes: kdaRecurrentBytes }], ibarVal: fmtBytes(kdaRecurrentBytes) },
       { name: 'Total', tip: 'Combined Gated MLA + KDA cache (one sequence).', expr: 'KV_f + S_conv + S_rec', values: { KV_f: mlaBytes, S_conv: kdaConvBytes, S_rec: kdaRecurrentBytes }, resultValue: kvBytes, bar: [{ type: 'compressed', bytes: kdaMlaCompressedBytes }, { type: 'rope', bytes: kdaMlaRopeBytes }, { type: 'fixed', bytes: kdaConvBytes }, { type: 'fixed-alt', bytes: kdaRecurrentBytes }], ibarVal: fmtBytes(seqs * kvBytes) }
     ];
+    if (dsaCount) {
+      formulas.splice(1, 0, { name: 'Idx', tip: 'DSA indexer key cache (128-d per token per sparse layer; query heads do not multiply storage).', expr: 'L_sp × d_idx × T × p_idx', values: { L_sp: dsaCount, d_idx: idxHd, T: tokens, p_idx: idxB }, resultValue: idxBytes, bar: [{ type: 'indexer', bytes: idxBytes }], ibarVal: fmtBytes(idxBytes) });
+      formulas[formulas.length - 1].resultValue += idxBytes;
+      formulas[formulas.length - 1].values.Idx = idxBytes;
+      formulas[formulas.length - 1].expr += ' + Idx';
+      formulas[formulas.length - 1].bar.push({ type: 'indexer', bytes: idxBytes });
+      formulas[formulas.length - 1].ibarVal = fmtBytes(seqs * (kvBytes + idxBytes));
+    }
     var kdaLinearDenom = kdaConvBytes + kdaRecurrentBytes;
     patterns = [
       {
@@ -958,11 +977,12 @@ function calcKvCache(model, tokens, precB, idxB, options) {
         bytes: kdaLinearDenom > 0 ? kdaBytes / linearLayers : 0
       }
     ];
-    legendTypes = ['compressed', 'rope', 'fixed'];
+    legendTypes = dsaCount ? ['compressed', 'rope', 'indexer', 'fixed'] : ['compressed', 'rope', 'fixed'];
 
     breakdown = [
       { label: 'Layers', value: fmtNum(f.num_hidden_layers || (fullLayers + linearLayers)) },
-      { label: 'Gated MLA layers', value: fmtNum(fullLayers) },
+      { label: dsaCount ? 'Gated DSA layers' : 'Gated MLA layers', value: fmtNum(fullLayers) },
+      ...(dsaCount ? [{ label: 'DSA indexer bytes', value: fmtNum(idxBytes) }, { label: 'DSA indexer layers', value: fmtNum(dsaCount) }] : []),
       { label: 'KDA linear layers', value: fmtNum(linearLayers) },
       { label: 'KV LoRA rank', value: fmtNum(kvLoraRank) },
       { label: 'QK RoPE head dim', value: fmtNum(qkRopeHd) },
@@ -972,7 +992,7 @@ function calcKvCache(model, tokens, precB, idxB, options) {
       { label: 'KDA conv elements', value: fmtNum(kdaConvElements) },
       { label: 'KDA recurrent elements', value: fmtNum(kdaRecurrentElements) },
       { label: 'Per-token elements', value: fmtNum(fullLayers * (kvLoraRank + qkRopeHd)), tip: 'Gated MLA only: full_layers \u00d7 (kv_lora_rank + qk_rope_head_dim)' },
-      { label: 'Total bytes', value: fmtNum(kvBytes) },
+      { label: 'Total bytes', value: fmtNum(kvBytes + idxBytes) },
     ];
 
   // ── msa_gqa (MiniMax Sparse Attention + GQA) ──
