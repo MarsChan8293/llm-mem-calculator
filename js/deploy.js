@@ -243,7 +243,7 @@ function updateConditionalFields() {
   var hasIndexer = modelHasIndexer(model);
   var hasAbsorption = modelSupportsAbsorption(model);
   var hasDraft = !!(model.fields.mtp_transformer_layers || model.fields.num_nextn_predict_layers || (model.formula === 'qwen_qsa_gdn_hybrid' && model.fields.mtp_num_hidden_layers));
-  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(model.formula);
+  var hasLinear = ['qwen_linear_full_hybrid', 'kda_gated_mla', 'kda_gated_dsa', 'glm5_next_hybrid', 'qwen_qsa_gdn_hybrid'].includes(model.formula);
 
   $epItem.style.display = hasMoE ? '' : 'none';
   $idxPrecField.style.display = hasIndexer ? '' : 'none';
@@ -253,7 +253,7 @@ function updateConditionalFields() {
   }
   $draftField.style.display = hasDraft ? '' : 'none';
   $linearField.style.display = hasLinear ? '' : 'none';
-  if (hasLinear && model.formula === 'kda_gated_mla') {
+  if (hasLinear && (model.formula === 'kda_gated_mla' || model.formula === 'kda_gated_dsa')) {
     $linearToggle.checked = true;
   }
   $absorptionField.style.display = (hasAbsorption && servingMode === 'disaggregated') ? '' : 'none';
