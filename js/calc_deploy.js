@@ -529,16 +529,16 @@ function getDeployDefaults(model) {
 
 function modelHasIndexer(model) {
   var formula = model.formula;
-  return formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'dsa_mla' || formula === 'msa_gqa' || formula === 'glm5_next_hybrid' || formula === 'qwen_qsa_gdn_hybrid';
+  return formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'dsa_mla' || formula === 'kda_gated_dsa' || formula === 'msa_gqa' || formula === 'glm5_next_hybrid' || formula === 'qwen_qsa_gdn_hybrid';
 }
 
 function modelUsesMlaKv(model) {
   // DeepSeek V4's hybrid sliding/compressed cache is still a latent KV
   // payload: it is replicated across TP ranks and only sharded by CP.
-  return ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'deepseek_v41', 'glm5_next_hybrid', 'kda_gated_mla'].includes(model.formula);
+  return ['mla', 'dsa_mla', 'deepseek_v4_hybrid', 'deepseek_v41', 'glm5_next_hybrid', 'kda_gated_mla', 'kda_gated_dsa'].includes(model.formula);
 }
 
 function modelSupportsAbsorption(model) {
   var formula = model.formula;
-  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'glm5_next_hybrid' || formula === 'kda_gated_mla';
+  return formula === 'mla' || formula === 'dsa_mla' || formula === 'deepseek_v4_hybrid' || formula === 'deepseek_v41' || formula === 'glm5_next_hybrid' || formula === 'kda_gated_mla' || formula === 'kda_gated_dsa';
 }
